@@ -19,8 +19,8 @@ services:
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production-please-set-a-long-random-string}"
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123}"
-      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8081}"
-      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8081}"
+      FRONTEND_URL: "${FRONTEND_URL:-https://relayd.onlyfrens.fun}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-https://relayd.onlyfrens.fun}"
     depends_on: [mongo]
     networks: [relayd]
 

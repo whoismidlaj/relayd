@@ -42,13 +42,15 @@ async def lifespan(app: FastAPI):
     mongo_url = os.environ["MONGO_URL"]
     db_name = os.environ.get("DB_NAME", "relayd_db")
     
-    # Use certifi and explicit SSL flags for maximum compatibility
+    # Only use TLS if the URL suggests it (Atlas) or if specifically requested
+    use_tls = "mongodb+srv://" in mongo_url or "tls=true" in mongo_url.lower()
+    
     ca = certifi.where()
     client = AsyncIOMotorClient(
         mongo_url,
-        tlsCAFile=ca,
-        tls=True,
-        tlsAllowInvalidCertificates=True, # Critical for some Windows/Proxy environments
+        tls=use_tls,
+        tlsCAFile=ca if use_tls else None,
+        tlsAllowInvalidCertificates=True,
         connectTimeoutMS=10000,
         serverSelectionTimeoutMS=10000
     )
