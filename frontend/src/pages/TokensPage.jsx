@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 
 export default function TokensPage() {
-  const { data: tokens, mutate } = useSWR("/api/tokens");
+  const { data: tokens, mutate } = useSWR("/tokens");
   
   const [createOpen, setCreateOpen] = useState(false);
   const [newTokenName, setNewTokenName] = useState("");
@@ -24,7 +24,7 @@ export default function TokensPage() {
     if (!newTokenName.trim()) return;
     setIsCreating(true);
     try {
-      const res = await api.post("/api/tokens", { name: newTokenName.trim() });
+      const res = await api.post("/tokens", { name: newTokenName.trim() });
       setCreatedToken(res.data.token);
       setNewTokenName("");
       mutate();
@@ -52,7 +52,7 @@ export default function TokensPage() {
   const revokeToken = async (id) => {
     if (!confirm("Are you sure you want to revoke this API key? Any applications using it will immediately lose access.")) return;
     try {
-      await api.delete(`/api/tokens/${id}`);
+      await api.delete(`/tokens/${id}`);
       mutate();
       toast.success("API Key Revoked");
     } catch (err) {

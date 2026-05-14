@@ -4,7 +4,7 @@ import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mail, Trash2, Clock, User, Hash, Inbox, Reply, Forward, Archive, Tag } from "lucide-react";
+import { Mail, Trash2, Clock, User, Hash, Inbox, Reply, Forward, Archive, Tag, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -81,12 +81,15 @@ export default function InboundPage() {
         </Card>
       </div>
 
-      <div className="flex h-[calc(100vh-15rem)] border border-border rounded-xl overflow-hidden bg-background shadow-sm">
+      <div className="flex flex-col md:flex-row h-[calc(100vh-12rem)] md:h-[calc(100vh-15rem)] border border-border rounded-xl overflow-hidden bg-background shadow-sm relative">
         {/* Left List Pane */}
-        <div className="w-1/3 border-r border-border flex flex-col bg-muted/10 min-w-[320px]">
-          <div className="p-4 border-b border-border bg-background/50 flex items-center justify-between">
+        <div className={`
+          w-full md:w-1/3 border-r border-border flex flex-col bg-muted/10 md:min-w-[320px] h-full
+          ${selected ? 'hidden md:flex' : 'flex'}
+        `}>
+          <div className="p-4 border-b border-border bg-background/50 flex items-center justify-between shrink-0">
             <h3 className="font-semibold flex items-center gap-2"><Inbox className="h-4 w-4" /> Unified Inbox</h3>
-            <Badge variant="secondary" className="font-mono">{stats.total} total</Badge>
+            <Badge variant="secondary" className="font-mono text-[10px]">{stats.total} total</Badge>
           </div>
           <ScrollArea className="flex-1">
             {messages.length === 0 && !loading && (
@@ -121,24 +124,32 @@ export default function InboundPage() {
         </div>
 
         {/* Right Reading Pane */}
-        <div className="w-2/3 flex flex-col bg-background relative">
+        <div className={`
+          w-full md:w-2/3 flex flex-col bg-background relative h-full
+          ${selected ? 'flex' : 'hidden md:flex'}
+        `}>
           {selected ? (
             <>
-              <div className="p-5 border-b border-border bg-muted/5 flex items-start justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 pr-10">{selected.subject}</h2>
-                  <div className="space-y-1.5 text-sm">
-                    <div className="flex items-center gap-2"><User className="h-4 w-4 text-muted-foreground" /> <span className="font-medium">{selected.from}</span></div>
-                    <div className="flex items-center gap-2"><Hash className="h-4 w-4 text-muted-foreground" /> <span className="text-muted-foreground">to</span> <Badge variant="secondary">{selected.to}</Badge></div>
-                    <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" /> <span className="text-muted-foreground">{new Date(selected.created_at).toLocaleString()}</span></div>
+              <div className="p-4 md:p-5 border-b border-border bg-muted/5 flex flex-col md:flex-row md:items-start justify-between gap-4 shrink-0">
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2 mb-3 md:hidden">
+                    <Button variant="ghost" size="sm" className="-ml-2 h-8 px-2" onClick={() => setSelected(null)}>
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Back
+                    </Button>
+                  </div>
+                  <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 pr-10 truncate">{selected.subject}</h2>
+                  <div className="space-y-1.5 text-xs md:text-sm">
+                    <div className="flex items-center gap-2"><User className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" /> <span className="font-medium truncate">{selected.from}</span></div>
+                    <div className="flex items-center gap-2"><Hash className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" /> <span className="text-muted-foreground shrink-0">to</span> <Badge variant="secondary" className="text-[10px] md:text-xs py-0 h-5 truncate">{selected.to}</Badge></div>
+                    <div className="flex items-center gap-2"><Clock className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" /> <span className="text-muted-foreground shrink-0">{new Date(selected.created_at).toLocaleString()}</span></div>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm"><Reply className="h-4 w-4" /></Button>
-                  <Button variant="outline" size="sm" onClick={(e) => { deleteMessage(selected.id, e); setSelected(null); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                <div className="flex gap-2 self-end md:self-start">
+                  <Button variant="outline" size="sm" className="h-8 w-8 md:h-9 md:w-9 p-0"><Reply className="h-4 w-4" /></Button>
+                  <Button variant="outline" size="sm" className="h-8 w-8 md:h-9 md:w-9 p-0" onClick={(e) => { deleteMessage(selected.id, e); setSelected(null); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                 </div>
               </div>
-              <ScrollArea className="flex-1 p-6">
+              <ScrollArea className="flex-1 p-4 md:p-6 bg-white dark:bg-zinc-950">
                 {selected.body_html ? (
                   <iframe 
                     title="email-content"
@@ -147,7 +158,7 @@ export default function InboundPage() {
                     sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
                   />
                 ) : (
-                  <pre className="whitespace-pre-wrap font-sans text-sm text-foreground bg-muted/30 p-6 rounded-lg border border-border">
+                  <pre className="whitespace-pre-wrap font-sans text-xs md:text-sm text-foreground bg-muted/30 p-4 md:p-6 rounded-lg border border-border">
                     {selected.body_text}
                   </pre>
                 )}

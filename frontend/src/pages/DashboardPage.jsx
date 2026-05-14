@@ -49,9 +49,9 @@ export default function DashboardPage() {
             <SectionLabel>Delivery Volume & Bounces</SectionLabel>
             <Badge variant="outline" className="font-mono text-[10px]">14D ROLLUP</Badge>
           </div>
-          <div className="h-[250px] w-full">
-            {stats?.timeseries && (
-              <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[250px] w-full min-w-0 relative">
+            <ResponsiveContainer width="100%" height="100%" minHeight={250} debounce={1}>
+              {stats?.timeseries ? (
                 <AreaChart data={stats.timeseries} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
@@ -73,9 +73,10 @@ export default function DashboardPage() {
                   <Area type="monotone" dataKey="sent" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSent)" name="Sent" />
                   <Area type="monotone" dataKey="bounces" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorBounce)" name="Bounces" />
                 </AreaChart>
-              </ResponsiveContainer>
-            )}
-            {!stats?.timeseries && <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading...</div>}
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Loading charts...</div>
+              )}
+            </ResponsiveContainer>
           </div>
         </Card>
 
@@ -124,16 +125,18 @@ export default function DashboardPage() {
             </div>
             <div className="text-2xl font-mono">{stats?.timeseries?.[14]?.latency || 0}</div>
           </div>
-          <div className="h-[150px] w-full">
-            {stats?.timeseries && (
-              <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[150px] w-full min-w-0 relative">
+            <ResponsiveContainer width="100%" height="100%" minHeight={150} debounce={1}>
+              {stats?.timeseries ? (
                 <LineChart data={stats.timeseries}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
                   <Tooltip contentStyle={{ backgroundColor: '#111', borderColor: '#333', fontSize: '12px' }} />
                   <Line type="stepAfter" dataKey="latency" stroke="#f59e0b" strokeWidth={2} dot={false} />
                 </LineChart>
-              </ResponsiveContainer>
-            )}
+              ) : (
+                <div />
+              )}
+            </ResponsiveContainer>
           </div>
         </Card>
 

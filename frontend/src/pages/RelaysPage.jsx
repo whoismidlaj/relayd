@@ -16,8 +16,9 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, Send, Star, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Send, Star, AlertCircle, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { DialogDescription } from "@/components/ui/dialog";
 
 const PROVIDER_META = {
   smtp:    { label: "Generic SMTP", wired: true,  fields: ["host", "port", "username", "password", "use_tls", "use_ssl"] },
@@ -118,6 +119,7 @@ export default function RelaysPage() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, weight: 100, match_domains: "", match_tags: "" });
   const [cfg, setCfg] = useState({ ...DEFAULT_CFG.resend });
   const [test, setTest] = useState({ from_email: "onboarding@resend.dev", to: "", subject: "Hello from Relayd", body: "This is a test from Relayd. ✉️", relay_id: "", tags: "" });
@@ -132,21 +134,53 @@ export default function RelaysPage() {
 
   useEffect(() => { refresh(); }, []);
 
-  const create = async (e) => {
+  const save = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/relays", { 
+      const payload = { 
         ...form, 
         match_domains: form.match_domains ? form.match_domains.split(",").map(s => s.trim()).filter(Boolean) : [],
         match_tags: form.match_tags ? form.match_tags.split(",").map(s => s.trim()).filter(Boolean) : [],
         config: cfg 
-      });
-      toast.success("Relay added");
+      };
+
+      if (editingId) {
+        await api.patch(`/relays/${editingId}`, payload);
+        toast.success("Relay updated");
+      } else {
+        await api.post("/relays", payload);
+        toast.success("Relay added");
+      }
+      
       setOpen(false);
+      setEditingId(null);
       setForm({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, weight: 100, match_domains: "", match_tags: "" });
       setCfg({ ...DEFAULT_CFG.resend });
       refresh();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+  };
+
+  const startEdit = (r) => {
+    setEditingId(r.id);
+    setForm({
+      name: r.name,
+      type: r.type,
+      priority: r.priority,
+      is_default: r.is_default,
+      daily_quota: r.daily_quota,
+      weight: r.weight,
+      match_domains: (r.match_domains || []).join(", "),
+      match_tags: (r.match_tags || []).join(", "),
+    });
+    setCfg({ ...r.config });
+    setOpen(true);
+  };
+
+  const startAdd = () => {
+    setEditingId(null);
+    setForm({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, weight: 100, match_domains: "", match_tags: "" });
+    setCfg({ ...DEFAULT_CFG.resend });
+    setOpen(true);
   };
 
   const remove = async (id) => {
@@ -196,7 +230,10 @@ export default function RelaysPage() {
                 </Button>
               </DialogTrigger>
               <DialogContent data-testid="test-email-dialog">
-                <DialogHeader><DialogTitle>Send a test email</DialogTitle></DialogHeader>
+                <DialogHeader>
+                  <DialogTitle>Send a test email</DialogTitle>
+                  <DialogDescription>Quickly verify that your relay configuration is working correctly by sending a real email.</DialogDescription>
+                </DialogHeader>
                 <form onSubmit={sendTest} className="space-y-4">
                   <div className="space-y-2"><Label>From</Label>
                     <Input value={test.from_email} onChange={(e) => setTest({ ...test, from_email: e.target.value })}
@@ -239,11 +276,14 @@ export default function RelaysPage() {
 
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="add-relay-button"><Plus className="h-4 w-4" /> Add provider</Button>
+                <Button onClick={startAdd} data-testid="add-relay-button"><Plus className="h-4 w-4" /> Add provider</Button>
               </DialogTrigger>
               <DialogContent data-testid="add-relay-dialog" className="max-h-[90vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Add relay provider</DialogTitle></DialogHeader>
-                <form onSubmit={create} className="space-y-4">
+                <DialogHeader>
+                  <DialogTitle>{editingId ? "Edit relay provider" : "Add relay provider"}</DialogTitle>
+                  <DialogDescription>Configure how Relayd should deliver outbound emails. You can mix multiple providers for failover and load balancing.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={save} className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2"><Label>Name</Label>
                       <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -310,7 +350,7 @@ export default function RelaysPage() {
                       <p className="text-[10px] text-muted-foreground">Overrides priority if payload tags match.</p>
                     </div>
                   </div>
-                  <DialogFooter><Button type="submit" data-testid="relay-submit">Add provider</Button></DialogFooter>
+                  <DialogFooter><Button type="submit" data-testid="relay-submit">{editingId ? "Update relay" : "Add provider"}</Button></DialogFooter>
                 </form>
               </DialogContent>
             </Dialog>
@@ -325,11 +365,11 @@ export default function RelaysPage() {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Priority</TableHead>
-              <TableHead>Weight</TableHead>
-              <TableHead>Daily Quota</TableHead>
+              <TableHead className="hidden lg:table-cell">Weight</TableHead>
+              <TableHead className="hidden md:table-cell">Daily Quota</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Default</TableHead>
-              <TableHead>Config</TableHead>
+              <TableHead className="hidden xl:table-cell">Config</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -346,8 +386,8 @@ export default function RelaysPage() {
                   <Badge variant="outline">{PROVIDER_META[r.type]?.label || r.type}</Badge>
                 </TableCell>
                 <TableCell className="font-mono">{r.priority}</TableCell>
-                <TableCell className="font-mono text-muted-foreground">{r.weight || 100}</TableCell>
-                <TableCell>
+                <TableCell className="font-mono text-muted-foreground hidden lg:table-cell">{r.weight || 100}</TableCell>
+                <TableCell className="hidden md:table-cell">
                   {(r.daily_quota && r.daily_quota > 0) ? (
                     <div className="flex flex-col gap-1 w-24">
                       <div className="text-xs font-medium flex justify-between">
@@ -381,14 +421,17 @@ export default function RelaysPage() {
                     ? <Badge variant="outline" className="text-amber-500 border-amber-500/40"><Star className="h-3 w-3 mr-1" /> default</Badge>
                     : <Button size="sm" variant="ghost" onClick={() => setDefault(r.id)} data-testid={`make-default-${r.name}`}>Make default</Button>}
                 </TableCell>
-                <TableCell className="font-mono text-[10px] text-muted-foreground max-w-xs overflow-hidden">
+                <TableCell className="font-mono text-[10px] text-muted-foreground max-w-xs overflow-hidden hidden xl:table-cell">
                   <div className="space-y-1">
                     {r.match_domains?.length > 0 && <div><span className="font-semibold text-primary">Domains:</span> {r.match_domains.join(", ")}</div>}
                     {r.match_tags?.length > 0 && <div><span className="font-semibold text-primary">Tags:</span> {r.match_tags.join(", ")}</div>}
                     <div className="truncate opacity-75">{Object.entries(r.config || {}).map(([k, v]) => `${k}=${v}`).join(" • ")}</div>
                   </div>
                 </TableCell>
-                <TableCell className="text-right">
+                 <TableCell className="text-right space-x-1">
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(r)} data-testid={`edit-relay-${r.name}`}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => remove(r.id)} data-testid={`delete-relay-${r.name}`}>
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>

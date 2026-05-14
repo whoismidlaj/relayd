@@ -44,7 +44,7 @@ export default function DocsPage() {
     <AppShell fullWidth>
       <div className="flex h-[calc(100vh-60px)]">
         {/* Docs Sidebar */}
-        <div className="w-64 border-r border-border bg-muted/10 p-4 overflow-y-auto hidden md:block">
+        <div className="w-64 border-r border-border bg-muted/10 p-4 overflow-y-auto hidden md:block shrink-0">
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4 px-2">Knowledge Base</div>
           <nav className="space-y-1">
             {DOCS_SECTIONS.map(s => (
@@ -64,7 +64,26 @@ export default function DocsPage() {
 
         {/* Docs Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-6 py-10 pb-20">
+          {/* Mobile Doc Nav */}
+          <div className="md:hidden sticky top-0 z-30 bg-background/80 backdrop-blur-md border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+              {DOCS_SECTIONS.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setPage(s.id)}
+                  className={`whitespace-nowrap px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                    activeId === s.id 
+                      ? "bg-primary border-primary text-primary-foreground font-medium" 
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {s.title}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="max-w-3xl mx-auto px-4 md:px-6 py-8 md:py-10 pb-20">
             <Content />
           </div>
         </div>
