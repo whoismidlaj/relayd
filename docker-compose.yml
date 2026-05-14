@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: mailctl-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks: [mailctl]
+
+  backend:
+    build: ./backend
+    container_name: mailctl-backend
+    restart: unless-stopped
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      DB_NAME: "mailctl_db"
+      JWT_SECRET: "${JWT_SECRET:-change-me-in-production-please-set-a-long-random-string}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8080}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8080}"
+    depends_on: [mongo]
+    networks: [mailctl]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_BACKEND_URL: "${PUBLIC_BACKEND_URL:-http://localhost:8080}"
+    container_name: mailctl-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on: [backend]
+    networks: [mailctl]
+
+volumes:
+  mongo_data:
+
+networks:
+  mailctl:
+    driver: bridge
