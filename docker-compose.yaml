@@ -8,6 +8,11 @@ services:
     volumes:
       - mongo_data:/data/db
     networks: [relayd]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   backend:
     build: ./backend
@@ -21,7 +26,9 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123}"
       FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8080}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8080}"
-    depends_on: [mongo]
+    depends_on:
+      mongo:
+        condition: service_healthy
     networks: [relayd]
 
   frontend:
