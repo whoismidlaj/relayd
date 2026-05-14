@@ -7,6 +7,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
+import ComposeDialog from "@/components/ComposeDialog";
+import { Plus } from "lucide-react";
 
 const NAV_GROUPS = [
   {
@@ -47,6 +49,7 @@ export default function AppShell({ children, fullWidth = false }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [composeOpen, setComposeOpen] = React.useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -98,6 +101,17 @@ export default function AppShell({ children, fullWidth = false }) {
           </div>
           <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={closeMenu}>
             <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="px-4 py-4 border-b border-border">
+          <Button 
+            className="w-full justify-start gap-2 shadow-sm" 
+            onClick={() => setComposeOpen(true)}
+            data-testid="sidebar-compose-button"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="font-semibold">Compose</span>
           </Button>
         </div>
 
@@ -161,6 +175,8 @@ export default function AppShell({ children, fullWidth = false }) {
       <main className="flex-1 min-w-0 w-full">
         <div className={`${fullWidth ? 'w-full' : 'max-w-[1200px]'} mx-auto px-4 md:px-6 py-6 md:py-8 animate-in-up`}>{children}</div>
       </main>
+
+      <ComposeDialog open={composeOpen} onOpenChange={setComposeOpen} />
     </div>
   );
 }
