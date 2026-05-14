@@ -20,13 +20,16 @@ class RelaydHandler:
         """Verify that we should accept mail for this recipient."""
         global db
         try:
-            rcpt = address.lower()
+            # Sanitize address: strip < > and whitespace
+            rcpt = address.lower().strip().strip('<>')
             domain = rcpt.split('@')[-1]
+            
+            logger.info(f"Checking RCPT: {rcpt} (domain: {domain})")
             
             # 1. Check if domain is verified in our system
             domain_doc = await db.domains.find_one({"name": domain, "verified": True})
             if not domain_doc:
-                logger.info(f"Rejected RCPT {rcpt}: Domain not found or not verified")
+                logger.warning(f"Rejected RCPT {rcpt}: Domain '{domain}' not found or not verified")
                 return '550 Relay access denied'
             
             # 2. Check if address exists as mailbox or alias
@@ -65,7 +68,7 @@ class RelaydHandler:
             logger.info(f"Incoming mail from {mail_from} to {rcpts}")
             
             for rcpt in rcpts:
-                rcpt = rcpt.lower()
+                rcpt = rcpt.lower().strip().strip('<>')
                 domain_name = rcpt.split('@')[-1]
                 
                 # Find the owner of the domain
