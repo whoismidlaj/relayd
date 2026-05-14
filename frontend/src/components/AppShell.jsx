@@ -37,7 +37,7 @@ export default function AppShell({ children }) {
             <Mail className="h-4 w-4" />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold tracking-tight">MailCtl</div>
+            <div className="text-sm font-semibold tracking-tight">Relayd</div>
             <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">orchestration</div>
           </div>
         </div>

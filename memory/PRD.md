@@ -1,4 +1,4 @@
-# MailCtl — PRD
+# Relayd — PRD
 
 ## Original problem statement
 Build a modern self-hostable email orchestration platform — a central dashboard for managing domains, inboxes, aliases, outbound relay providers, inbound routing, delivery logs, DNS records, mail routing and deliverability. Lightweight, modular, developer-friendly, privacy-focused. Target: self-hosters, devs, indie hackers, agencies.

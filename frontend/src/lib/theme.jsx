@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Moon, Sun, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const THEME_KEY = "mailctl.theme";
+const THEME_KEY = "relayd.theme";
 
 function applyTheme(theme) {
   const root = document.documentElement;

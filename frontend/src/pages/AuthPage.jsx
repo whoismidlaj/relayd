@@ -43,7 +43,7 @@ export default function AuthPage({ mode = "login" }) {
             <div className="h-7 w-7 rounded-sm bg-foreground text-background grid place-items-center">
               <Mail className="h-4 w-4" />
             </div>
-            <span className="text-sm font-semibold tracking-tight">MailCtl</span>
+            <span className="text-sm font-semibold tracking-tight">Relayd</span>
           </Link>
           <ThemeToggle />
         </div>

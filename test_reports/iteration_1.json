@@ -1,5 +1,5 @@
 {
-  "summary": "Comprehensive backend testing for MailCtl. Ran 26 pytest cases covering auth (register/login/me/logout/brute-force), domains (CRUD/DNS/verify/cascade), mailboxes, aliases, relays (incl. default exclusivity + secret masking), send/test (failed-log path), retry/delete logs, stats, deliverability, and multi-tenant isolation. After fixing 2 backend bugs (datetime tz compare in brute-force lockout, missing _id pop on insert_one for mailboxes/aliases/relays), 26/26 tests pass.",
+  "summary": "Comprehensive backend testing for Relayd. Ran 26 pytest cases covering auth (register/login/me/logout/brute-force), domains (CRUD/DNS/verify/cascade), mailboxes, aliases, relays (incl. default exclusivity + secret masking), send/test (failed-log path), retry/delete logs, stats, deliverability, and multi-tenant isolation. After fixing 2 backend bugs (datetime tz compare in brute-force lockout, missing _id pop on insert_one for mailboxes/aliases/relays), 26/26 tests pass.",
   "backend_issues": {
     "critical": [
       {

@@ -104,7 +104,7 @@ export default function RelaysPage() {
   const [testOpen, setTestOpen] = useState(false);
   const [form, setForm] = useState({ name: "", type: "resend", priority: 100, is_default: false });
   const [cfg, setCfg] = useState({ ...DEFAULT_CFG.resend });
-  const [test, setTest] = useState({ from_email: "onboarding@resend.dev", to: "", subject: "Hello from MailCtl", body: "This is a test from MailCtl. ✉️", relay_id: "" });
+  const [test, setTest] = useState({ from_email: "onboarding@resend.dev", to: "", subject: "Hello from Relayd", body: "This is a test from Relayd. ✉️", relay_id: "" });
   const [sending, setSending] = useState(false);
 
   const refresh = async () => {

@@ -1,4 +1,4 @@
-"""MailCtl backend integration tests — full suite.
+"""Relayd backend integration tests — full suite.
 
 Covers: auth (register/login/me/logout + brute force), domains (CRUD + DNS +
 verify), mailboxes, aliases, relays, send/test, logs, stats, deliverability,
@@ -59,7 +59,7 @@ class TestHealth:
         r = requests.get(f"{API}/")
         assert r.status_code == 200
         body = r.json()
-        assert body["name"] == "MailCtl"
+        assert body["name"] == "Relayd"
         assert body["status"] == "ok"
 
     def test_health(self):

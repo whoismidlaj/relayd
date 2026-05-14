@@ -1,9 +1,9 @@
-# MailCtl — Modern Self-Hostable Email Orchestration Platform
+# Relayd — Modern Self-Hostable Email Orchestration Platform
 
 > A lightweight, modular, developer-friendly control plane for your email infrastructure.
 > Manage domains, DKIM/SPF/DMARC, mailboxes, aliases and outbound relays — all from a clean dashboard.
 
-MailCtl is **not** a Postfix UI, not a cPanel clone, and not a heavy enterprise mail suite.
+Relayd is **not** a Postfix UI, not a cPanel clone, and not a heavy enterprise mail suite.
 It's a **relay-aware orchestration platform** built for self-hosters, developers, indie hackers, agencies and privacy-focused users who want a modern terminal-grade control panel for their email infrastructure.
 
 ---
@@ -47,6 +47,8 @@ It's a **relay-aware orchestration platform** built for self-hosters, developers
 ```bash
 cd backend
 pip install -r requirements.txt
+python server.py
+# or
 uvicorn server:app --reload --host 0.0.0.0 --port 8001
 ```
 
@@ -54,6 +56,7 @@ uvicorn server:app --reload --host 0.0.0.0 --port 8001
 ```bash
 cd frontend
 yarn install
+# Create .env file with: REACT_APP_BACKEND_URL=http://localhost:8001
 yarn start
 ```
 
@@ -74,7 +77,7 @@ docker compose up -d --build
 ```
 
 The stack exposes only the frontend on **port 8080**. Nginx inside the frontend container
-proxies `/api/*` to the backend service over the internal `mailctl` network.
+proxies `/api/*` to the backend service over the internal `relayd` network.
 
 ### docker-compose env vars
 | Var | Default | Purpose |
@@ -114,10 +117,10 @@ proxies `/api/*` to the backend service over the internal `mailctl` network.
 
 ## Product philosophy
 
-MailCtl IS: a modern, relay-aware, self-hostable, modular, lightweight,
+Relayd IS: a modern, relay-aware, self-hostable, modular, lightweight,
 developer-friendly and privacy-focused email orchestration platform.
 
-MailCtl IS NOT: a cPanel clone, a traditional hosting panel, a heavy enterprise
+Relayd IS NOT: a cPanel clone, a traditional hosting panel, a heavy enterprise
 mail suite, or an old-school Postfix UI.
 
 ---
