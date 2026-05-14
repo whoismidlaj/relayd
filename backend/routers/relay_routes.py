@@ -37,6 +37,9 @@ class RelayIn(BaseModel):
     config: dict
     priority: int = 100
     is_default: bool = False
+    daily_quota: int = 0
+    match_domains: list[str] = []
+    match_tags: list[str] = []
 
 
 class RelayUpdate(BaseModel):
@@ -45,6 +48,9 @@ class RelayUpdate(BaseModel):
     priority: Optional[int] = None
     is_default: Optional[bool] = None
     enabled: Optional[bool] = None
+    daily_quota: Optional[int] = None
+    match_domains: Optional[list[str]] = None
+    match_tags: Optional[list[str]] = None
 
 
 def _scrub_secrets(p: dict) -> dict:
@@ -77,6 +83,12 @@ async def create_relay(payload: RelayIn, user: dict = Depends(get_current_user))
         "priority": payload.priority,
         "is_default": payload.is_default,
         "enabled": True,
+        "daily_quota": payload.daily_quota,
+        "usage_today": 0,
+        "usage_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "health_status": "healthy",
+        "match_domains": payload.match_domains,
+        "match_tags": payload.match_tags,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.relays.insert_one(doc)
@@ -116,6 +128,7 @@ class TestEmailIn(BaseModel):
     body: str
     relay_id: Optional[str] = None
     use_failover: bool = True
+    tags: list[str] = []
 
 
 async def _attempt_send(provider: dict, payload: TestEmailIn) -> dict:
@@ -139,16 +152,36 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
             raise HTTPException(status_code=404, detail="Relay not found")
         providers = [provider]
     else:
-        default = await db.relays.find_one({"user_id": user["id"], "is_default": True, "enabled": True}, {"_id": 0})
-        if not default:
-            raise HTTPException(status_code=400, detail="No default relay configured")
-        providers = [default]
-        if payload.use_failover:
-            extras = await db.relays.find(
-                {"user_id": user["id"], "enabled": True, "id": {"$ne": default["id"]}},
-                {"_id": 0},
-            ).sort("priority", 1).to_list(10)
-            providers.extend(extras)
+        all_relays = await db.relays.find({"user_id": user["id"], "enabled": True}, {"_id": 0}).to_list(100)
+        if not all_relays:
+            raise HTTPException(status_code=400, detail="No configured relays found")
+            
+        recipient_domain = payload.to.split("@")[-1].lower()
+        
+        def score_relay(r):
+            score = r.get("priority", 100)
+            
+            # Domain match routing (Highest priority)
+            domains = r.get("match_domains", [])
+            if recipient_domain in domains:
+                score -= 1000
+            elif any(recipient_domain.endswith(d.lstrip("*.")) for d in domains if d.startswith("*.")):
+                score -= 1000
+                
+            # Tag match routing
+            tags = r.get("match_tags", [])
+            for t in payload.tags:
+                if t in tags:
+                    score -= 500
+                    
+            if r.get("is_default"):
+                score -= 10
+            return score
+            
+        providers = sorted(all_relays, key=score_relay)
+        
+        if not payload.use_failover and providers:
+            providers = [providers[0]]
 
     final_result = None
     used_provider = None
@@ -156,6 +189,25 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
     max_retries = 2
 
     for prov in providers:
+        # Check quota
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        daily_quota = prov.get("daily_quota", 0)
+        usage_today = prov.get("usage_today", 0)
+        usage_date = prov.get("usage_date", "1970-01-01")
+
+        if usage_date != today_str:
+            usage_today = 0
+            prov["usage_today"] = 0
+            prov["usage_date"] = today_str
+
+        if daily_quota > 0 and usage_today >= daily_quota:
+            attempts.append({
+                "provider_id": prov.get("id"), "provider_name": prov.get("name"), "type": prov.get("type"),
+                "attempt": 1, "ok": False,
+                "error": "Daily quota exceeded", "message_id": None,
+            })
+            continue # Skip to next failover provider
+
         for attempt_n in range(1, max_retries + 1):
             # If it's a direct send, we need to inject DKIM info from the domain
             if prov.get("type") == "direct" or prov.get("id") == "virtual-direct":
@@ -176,7 +228,27 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
             if result["ok"]:
                 final_result = result
                 used_provider = prov
+                
+                # Increment quota and set healthy
+                await db.relays.update_one(
+                    {"id": prov["id"]},
+                    {"$set": {"usage_date": today_str, "health_status": "healthy"}, "$inc": {"usage_today": 1}}
+                )
                 break
+            else:
+                # Update health status on failure
+                err_msg = str(result.get("error", "")).lower()
+                new_health = "error"
+                if "429" in err_msg or "rate limit" in err_msg or "quota" in err_msg:
+                    new_health = "rate_limited"
+                elif "bounce" in err_msg:
+                    new_health = "high_bounce_rate"
+                
+                await db.relays.update_one(
+                    {"id": prov["id"]},
+                    {"$set": {"health_status": new_health}}
+                )
+                
             if attempt_n < max_retries:
                 await asyncio.sleep(0.5)
         if final_result and final_result.get("ok"):

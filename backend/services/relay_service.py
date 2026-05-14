@@ -7,8 +7,8 @@ import resend
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
+import httpx
 from typing import Any
-
 
 class RelaySendError(Exception):
     pass
@@ -167,11 +167,95 @@ async def send_email(provider: dict, from_email: str, to: list[str], subject: st
         dkim_selector = cfg.get("dkim_selector", "mail")
         return await asyncio.to_thread(_send_direct_sync, from_email, to, subject, html, text, dkim_key, dkim_selector)
 
-    # Stubs — config-only providers
-    if ptype in ("ses", "brevo", "smtp2go"):
-        return {
-            "ok": False,
-            "error": f"Provider '{ptype}' is configured but sending is not yet wired in this MVP.",
-            "raw": None,
-        }
+    if ptype == "ses":
+        return await asyncio.to_thread(_send_ses_sync, cfg, from_email, to, subject, html, text)
+    if ptype == "brevo":
+        return await _send_brevo_async(cfg.get("api_key", ""), from_email, to, subject, html, text)
+    if ptype == "smtp2go":
+        return await _send_smtp2go_async(cfg.get("api_key", ""), from_email, to, subject, html, text)
+
     return {"ok": False, "error": f"Unknown provider type: {ptype}", "raw": None}
+
+def _send_ses_sync(config: dict, from_email: str, to: list[str], subject: str,
+                   html: str | None, text: str | None) -> dict:
+    import boto3
+    try:
+        client = boto3.client(
+            'ses',
+            region_name=config.get("region", "us-east-1"),
+            aws_access_key_id=config.get("access_key_id"),
+            aws_secret_access_key=config.get("secret_access_key")
+        )
+        
+        body = {}
+        if html: body["Html"] = {"Data": html, "Charset": "UTF-8"}
+        if text: body["Text"] = {"Data": text, "Charset": "UTF-8"}
+        if not body:
+            body["Text"] = {"Data": " ", "Charset": "UTF-8"}
+            
+        resp = client.send_email(
+            Source=from_email,
+            Destination={"ToAddresses": to},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": body
+            }
+        )
+        return {"ok": True, "message_id": resp.get("MessageId"), "raw": resp}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "raw": None}
+
+
+async def _send_brevo_async(api_key: str, from_email: str, to: list[str], subject: str,
+                            html: str | None, text: str | None) -> dict:
+    if not api_key:
+        return {"ok": False, "error": "Brevo API key missing", "raw": None}
+    
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {"api-key": api_key, "Content-Type": "application/json"}
+    payload = {
+        "sender": {"email": from_email},
+        "to": [{"email": t} for t in to],
+        "subject": subject,
+    }
+    if html: payload["htmlContent"] = html
+    if text: payload["textContent"] = text
+    if not html and not text: payload["textContent"] = " "
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=headers, json=payload, timeout=10.0)
+            data = resp.json()
+            if resp.status_code >= 400:
+                return {"ok": False, "error": data.get("message", str(data)), "raw": data}
+            return {"ok": True, "message_id": data.get("messageId", ""), "raw": data}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "raw": None}
+
+
+async def _send_smtp2go_async(api_key: str, from_email: str, to: list[str], subject: str,
+                              html: str | None, text: str | None) -> dict:
+    if not api_key:
+        return {"ok": False, "error": "SMTP2GO API key missing", "raw": None}
+    
+    url = "https://api.smtp2go.com/v3/email/send"
+    payload = {
+        "api_key": api_key,
+        "sender": from_email,
+        "to": to,
+        "subject": subject,
+    }
+    if html: payload["html_body"] = html
+    if text: payload["text_body"] = text
+    if not html and not text: payload["text_body"] = " "
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, timeout=10.0)
+            data = resp.json()
+            if data.get("data", {}).get("error") or data.get("data", {}).get("failures"):
+                err = data.get("data", {}).get("error", str(data))
+                return {"ok": False, "error": err, "raw": data}
+            return {"ok": True, "message_id": data.get("data", {}).get("email_id", ""), "raw": data}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "raw": None}

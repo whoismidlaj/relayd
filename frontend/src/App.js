@@ -16,6 +16,8 @@ import DeliverabilityPage from "@/pages/DeliverabilityPage";
 import SettingsPage from "@/pages/SettingsPage";
 import InboundPage from "@/pages/InboundPage";
 import WorkerPage from "@/pages/WorkerPage";
+import TokensPage from "@/pages/TokensPage";
+import DocsPage from "@/pages/DocsPage";
 
 function Protected({ children }) {
   const { user } = useAuth();
@@ -50,6 +52,8 @@ export default function App() {
             <Route path="/inbound" element={<Protected><InboundPage /></Protected>} />
             <Route path="/logs" element={<Protected><LogsPage /></Protected>} />
             <Route path="/deliverability" element={<Protected><DeliverabilityPage /></Protected>} />
+            <Route path="/tokens" element={<Protected><TokensPage /></Protected>} />
+            <Route path="/docs" element={<Protected><DocsPage /></Protected>} />
             <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

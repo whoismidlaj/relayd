@@ -92,6 +92,8 @@ async def lifespan(app: FastAPI):
             await db.relays.create_index([("user_id", 1), ("name", 1)])
             await db.delivery_logs.create_index([("user_id", 1), ("created_at", -1)])
             await db.login_attempts.create_index("identifier")
+            await db.api_tokens.create_index("token", unique=True)
+            await db.api_tokens.create_index([("user_id", 1)])
 
             # Seed admin
             admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
@@ -147,7 +149,7 @@ async def health():
         return {"ok": False, "db": str(e)}
 
 # Routers (local imports to ensure 'db' is available via lifespan)
-from routers import auth_routes, domains, mail_routes, relay_routes, deliverability_routes, inbound_routes
+from routers import auth_routes, domains, mail_routes, relay_routes, deliverability_routes, inbound_routes, token_routes
 
 api_router.include_router(auth_routes.router)
 api_router.include_router(domains.router)
@@ -155,6 +157,7 @@ api_router.include_router(mail_routes.router)
 api_router.include_router(relay_routes.router)
 api_router.include_router(deliverability_routes.router)
 api_router.include_router(inbound_routes.router)
+api_router.include_router(token_routes.router)
 
 app.include_router(api_router)
 

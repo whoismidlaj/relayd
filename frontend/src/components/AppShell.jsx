@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Globe, Inbox, ArrowRightLeft, Send,
-  Activity, ScrollText, Settings, LogOut, Mail
+  Activity, ScrollText, Settings, LogOut, Mail, KeyRound, BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/lib/theme";
@@ -18,6 +18,8 @@ const NAV = [
   { to: "/worker", label: "Worker", icon: Activity, testId: "nav-worker" },
   { to: "/deliverability", label: "Deliverability", icon: Activity, testId: "nav-deliverability" },
   { to: "/logs", label: "Delivery Logs", icon: ScrollText, testId: "nav-logs" },
+  { to: "/tokens", label: "API Tokens", icon: KeyRound, testId: "nav-tokens" },
+  { to: "/docs", label: "Documentation", icon: BookOpen, testId: "nav-docs" },
   { to: "/settings", label: "Settings", icon: Settings, testId: "nav-settings" },
 ];
 

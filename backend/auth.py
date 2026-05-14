@@ -88,6 +88,28 @@ async def get_current_user(request: Request) -> dict:
     token = _extract_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Handle API keys (e.g. re_xxxx)
+    if token.startswith("re_"):
+        api_key = await db.api_tokens.find_one({"token": token})
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API token")
+        
+        # Update last used timestamp
+        await db.api_tokens.update_one(
+            {"_id": api_key["_id"]},
+            {"$set": {"last_used_at": datetime.now(timezone.utc).isoformat()}}
+        )
+
+        user = await db.users.find_one({"_id": ObjectId(api_key["user_id"])})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        user["id"] = str(user["_id"])
+        user.pop("_id", None)
+        user.pop("password_hash", None)
+        return user
+
+    # Handle JWT
     try:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":

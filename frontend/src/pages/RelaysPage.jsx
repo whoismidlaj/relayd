@@ -22,9 +22,9 @@ import { toast } from "sonner";
 const PROVIDER_META = {
   smtp:    { label: "Generic SMTP", wired: true,  fields: ["host", "port", "username", "password", "use_tls", "use_ssl"] },
   resend:  { label: "Resend",       wired: true,  fields: ["api_key"] },
-  ses:     { label: "Amazon SES",   wired: false, fields: ["access_key_id", "secret_access_key", "region"] },
-  brevo:   { label: "Brevo",        wired: false, fields: ["api_key"] },
-  smtp2go: { label: "SMTP2GO",      wired: false, fields: ["api_key"] },
+  ses:     { label: "Amazon SES",   wired: true, fields: ["access_key_id", "secret_access_key", "region"] },
+  brevo:   { label: "Brevo",        wired: true, fields: ["api_key"] },
+  smtp2go: { label: "SMTP2GO",      wired: true, fields: ["api_key"] },
   direct:  { label: "System (Direct MX)", wired: true, fields: [] },
 };
 
@@ -118,9 +118,9 @@ export default function RelaysPage() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", type: "resend", priority: 100, is_default: false });
+  const [form, setForm] = useState({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, match_domains: "", match_tags: "" });
   const [cfg, setCfg] = useState({ ...DEFAULT_CFG.resend });
-  const [test, setTest] = useState({ from_email: "onboarding@resend.dev", to: "", subject: "Hello from Relayd", body: "This is a test from Relayd. ✉️", relay_id: "" });
+  const [test, setTest] = useState({ from_email: "onboarding@resend.dev", to: "", subject: "Hello from Relayd", body: "This is a test from Relayd. ✉️", relay_id: "", tags: "" });
   const [sending, setSending] = useState(false);
 
   const refresh = async () => {
@@ -135,10 +135,15 @@ export default function RelaysPage() {
   const create = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/relays", { ...form, config: cfg });
+      await api.post("/relays", { 
+        ...form, 
+        match_domains: form.match_domains ? form.match_domains.split(",").map(s => s.trim()).filter(Boolean) : [],
+        match_tags: form.match_tags ? form.match_tags.split(",").map(s => s.trim()).filter(Boolean) : [],
+        config: cfg 
+      });
       toast.success("Relay added");
       setOpen(false);
-      setForm({ name: "", type: "resend", priority: 100, is_default: false });
+      setForm({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, match_domains: "", match_tags: "" });
       setCfg({ ...DEFAULT_CFG.resend });
       refresh();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
@@ -162,7 +167,7 @@ export default function RelaysPage() {
     e.preventDefault();
     setSending(true);
     try {
-      const payload = { ...test };
+      const payload = { ...test, tags: test.tags ? test.tags.split(",").map(s => s.trim()).filter(Boolean) : [] };
       if (!payload.relay_id) delete payload.relay_id;
       const { data } = await api.post("/send/test", payload);
       if (data.status === "sent") toast.success(`Sent via ${data.provider_name}`);
@@ -209,6 +214,10 @@ export default function RelaysPage() {
                     <Textarea rows={4} value={test.body} onChange={(e) => setTest({ ...test, body: e.target.value })}
                               data-testid="test-body-input" />
                   </div>
+                  <div className="space-y-2"><Label>Tags (comma separated)</Label>
+                    <Input value={test.tags} onChange={(e) => setTest({ ...test, tags: e.target.value })}
+                           placeholder="transactional, welcome" data-testid="test-tags-input" />
+                  </div>
                   <div className="space-y-2"><Label>Relay (optional — default + failover otherwise)</Label>
                     <Select value={test.relay_id || "__default__"}
                       onValueChange={(v) => setTest({ ...test, relay_id: v === "__default__" ? "" : v })}>
@@ -251,20 +260,19 @@ export default function RelaysPage() {
                     </div>
                   </div>
 
-                  {!PROVIDER_META[form.type].wired && (
-                    <div className="text-xs flex items-start gap-2 border border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400 rounded-sm p-3">
-                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <span>This provider is config-only in the current MVP. Sending will return an error until wired. Use Generic SMTP or Resend to actually send.</span>
-                    </div>
-                  )}
+
 
                   <ProviderFields type={form.type} cfg={cfg} setCfg={setCfg} />
 
-                  <div className="grid grid-cols-[1fr_140px] gap-3">
+                  <div className="grid grid-cols-[1fr_1fr_140px] gap-3">
                     <div className="space-y-2"><Label>Priority (lower = first)</Label>
                       <Input type="number" value={form.priority}
                              onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
                              data-testid="relay-priority-input" /></div>
+                    <div className="space-y-2"><Label>Daily Quota (0 = ∞)</Label>
+                      <Input type="number" value={form.daily_quota} min="0"
+                             onChange={(e) => setForm({ ...form, daily_quota: Number(e.target.value) })}
+                             data-testid="relay-quota-input" /></div>
                     <div className="space-y-2"><Label>&nbsp;</Label>
                       <label className="flex items-center gap-2 h-9 text-sm">
                         <input type="checkbox" checked={form.is_default}
@@ -272,6 +280,18 @@ export default function RelaysPage() {
                                data-testid="relay-default-checkbox" />
                         Set as default
                       </label>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2"><Label>Match Domains (comma separated)</Label>
+                      <Input value={form.match_domains} onChange={(e) => setForm({ ...form, match_domains: e.target.value })}
+                             placeholder="gmail.com, *.outlook.com" />
+                      <p className="text-[10px] text-muted-foreground">Overrides priority if recipient matches.</p>
+                    </div>
+                    <div className="space-y-2"><Label>Match Tags (comma separated)</Label>
+                      <Input value={form.match_tags} onChange={(e) => setForm({ ...form, match_tags: e.target.value })}
+                             placeholder="transactional, marketing" />
+                      <p className="text-[10px] text-muted-foreground">Overrides priority if payload tags match.</p>
                     </div>
                   </div>
                   <DialogFooter><Button type="submit" data-testid="relay-submit">Add provider</Button></DialogFooter>
@@ -289,6 +309,8 @@ export default function RelaysPage() {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Priority</TableHead>
+              <TableHead>Daily Quota</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Default</TableHead>
               <TableHead>Config</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -296,7 +318,7 @@ export default function RelaysPage() {
           </TableHeader>
           <TableBody data-testid="relays-table-body">
             {items.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">
+              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">
                 No relays yet. Add Resend, SMTP, or use <strong>System (Direct MX)</strong> to start sending.
               </TableCell></TableRow>
             )}
@@ -308,12 +330,45 @@ export default function RelaysPage() {
                 </TableCell>
                 <TableCell className="font-mono">{r.priority}</TableCell>
                 <TableCell>
+                  {(r.daily_quota && r.daily_quota > 0) ? (
+                    <div className="flex flex-col gap-1 w-24">
+                      <div className="text-xs font-medium flex justify-between">
+                        <span>{r.usage_today || 0}</span>
+                        <span className="text-muted-foreground">/ {r.daily_quota}</span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className={`h-1.5 rounded-full ${(r.usage_today || 0) >= r.daily_quota ? "bg-red-500" : "bg-primary"}`} 
+                          style={{ width: `${Math.min(100, ((r.usage_today || 0) / r.daily_quota) * 100)}%` }} 
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Unlimited</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {!r.health_status || r.health_status === "healthy" ? (
+                    <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-none">Healthy</Badge>
+                  ) : r.health_status === "rate_limited" ? (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20 shadow-none">Rate limited</Badge>
+                  ) : r.health_status === "high_bounce_rate" ? (
+                    <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/20 shadow-none">High bounce</Badge>
+                  ) : (
+                    <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20 shadow-none">Error</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
                   {r.is_default
                     ? <Badge variant="outline" className="text-amber-500 border-amber-500/40"><Star className="h-3 w-3 mr-1" /> default</Badge>
                     : <Button size="sm" variant="ghost" onClick={() => setDefault(r.id)} data-testid={`make-default-${r.name}`}>Make default</Button>}
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-w-xs truncate">
-                  {Object.entries(r.config || {}).map(([k, v]) => `${k}=${v}`).join(" • ")}
+                <TableCell className="font-mono text-[10px] text-muted-foreground max-w-xs overflow-hidden">
+                  <div className="space-y-1">
+                    {r.match_domains?.length > 0 && <div><span className="font-semibold text-primary">Domains:</span> {r.match_domains.join(", ")}</div>}
+                    {r.match_tags?.length > 0 && <div><span className="font-semibold text-primary">Tags:</span> {r.match_tags.join(", ")}</div>}
+                    <div className="truncate opacity-75">{Object.entries(r.config || {}).map(([k, v]) => `${k}=${v}`).join(" • ")}</div>
+                  </div>
                 </TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="sm" onClick={() => remove(r.id)} data-testid={`delete-relay-${r.name}`}>
