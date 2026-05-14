@@ -39,61 +39,82 @@ async def lifespan(app: FastAPI):
     global db, client
     
     # Initialize Mongo
-    mongo_url = os.environ["MONGO_URL"]
+    mongo_url = os.environ["MONGO_URL"].strip()
     db_name = os.environ.get("DB_NAME", "relayd_db")
     
     # Only use TLS if the URL suggests it (Atlas) or if specifically requested
     use_tls = "mongodb+srv://" in mongo_url or "tls=true" in mongo_url.lower()
     
-    ca = certifi.where()
-    client = AsyncIOMotorClient(
-        mongo_url,
-        tls=use_tls,
-        tlsCAFile=ca if use_tls else None,
-        tlsAllowInvalidCertificates=True,
-        connectTimeoutMS=10000,
-        serverSelectionTimeoutMS=10000
-    )
+    # Connection options for stability (especially on Windows/Atlas)
+    client_kwargs = {
+        "connectTimeoutMS": 30000,
+        "serverSelectionTimeoutMS": 30000,
+        "heartbeatFrequencyMS": 10000,
+    }
+
+    if use_tls:
+        client_kwargs.update({
+            "tlsCAFile": certifi.where(),
+            "tlsAllowInvalidCertificates": True,
+            "retryWrites": False,
+            "directConnection": False,
+        })
+        # Only add tls=True if not already in the SRV or URL params
+        if "mongodb+srv://" not in mongo_url and "ssl=" not in mongo_url.lower() and "tls=" not in mongo_url.lower():
+            client_kwargs["tls"] = True
+
+    client = AsyncIOMotorClient(mongo_url, **client_kwargs)
     db = client[db_name]
 
     try:
-        # Verify connection immediately
-        await client.admin.command('ping')
-        logger.info("Successfully connected to MongoDB Atlas")
+        retries = 3
+        connected = False
+        while retries > 0:
+            try:
+                await client.admin.command('ping')
+                logger.info("Successfully connected to MongoDB")
+                connected = True
+                break
+            except Exception as e:
+                retries -= 1
+                logger.warning(f"Database connection attempt failed ({3-retries}/3): {e}")
+                if retries > 0:
+                    await asyncio.sleep(2)
+                else:
+                    logger.error("Could not connect to database after 3 attempts.")
 
-        # Indexes
-        await db.users.create_index("email", unique=True)
-        await db.domains.create_index([("user_id", 1), ("name", 1)], unique=True)
-        await db.mailboxes.create_index("address", unique=True)
-        await db.aliases.create_index("address", unique=True)
-        await db.relays.create_index([("user_id", 1), ("name", 1)])
-        await db.delivery_logs.create_index([("user_id", 1), ("created_at", -1)])
-        await db.login_attempts.create_index("identifier")
+        if connected:
+            # Indexes
+            await db.users.create_index("email", unique=True)
+            await db.domains.create_index([("user_id", 1), ("name", 1)], unique=True)
+            await db.mailboxes.create_index("address", unique=True)
+            await db.aliases.create_index("address", unique=True)
+            await db.relays.create_index([("user_id", 1), ("name", 1)])
+            await db.delivery_logs.create_index([("user_id", 1), ("created_at", -1)])
+            await db.login_attempts.create_index("identifier")
 
-        # Seed admin
-        admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
-        admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-        existing = await db.users.find_one({"email": admin_email})
-        if existing is None:
-            await db.users.insert_one({
-                "email": admin_email,
-                "password_hash": hash_password(admin_password),
-                "name": "Admin",
-                "role": "admin",
-                "created_at": datetime.now(timezone.utc),
-            })
-            logger.info("Seeded admin user: %s", admin_email)
-        elif not verify_password(admin_password, existing["password_hash"]):
-            await db.users.update_one(
-                {"email": admin_email},
-                {"$set": {"password_hash": hash_password(admin_password)}},
-            )
-            logger.info("Updated admin password from env")
+            # Seed admin
+            admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
+            admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+            existing = await db.users.find_one({"email": admin_email})
+            if existing is None:
+                await db.users.insert_one({
+                    "email": admin_email,
+                    "password_hash": hash_password(admin_password),
+                    "name": "Admin",
+                    "role": "admin",
+                    "created_at": datetime.now(timezone.utc),
+                })
+                logger.info("Seeded admin user: %s", admin_email)
+            elif not verify_password(admin_password, existing["password_hash"]):
+                await db.users.update_one(
+                    {"email": admin_email},
+                    {"$set": {"password_hash": hash_password(admin_password)}},
+                )
+                logger.info("Updated admin password from env")
             
     except Exception as e:
         logger.error("Failed to initialize database: %s", e)
-        # We don't raise here to allow the app to start (and show health check errors)
-        # but the app won't be very useful.
 
     yield
     
@@ -126,17 +147,14 @@ async def health():
         return {"ok": False, "db": str(e)}
 
 # Routers (local imports to ensure 'db' is available via lifespan)
-from routers.auth_routes import router as auth_router
-from routers.domains import router as domains_router
-from routers.mail_routes import router as mail_router
-from routers.relay_routes import router as relay_router
-from routers.deliverability_routes import router as deliverability_router
+from routers import auth_routes, domains, mail_routes, relay_routes, deliverability_routes, inbound_routes
 
-api_router.include_router(auth_router)
-api_router.include_router(domains_router)
-api_router.include_router(mail_router)
-api_router.include_router(relay_router)
-api_router.include_router(deliverability_router)
+api_router.include_router(auth_routes.router)
+api_router.include_router(domains.router)
+api_router.include_router(mail_routes.router)
+api_router.include_router(relay_routes.router)
+api_router.include_router(deliverability_routes.router)
+api_router.include_router(inbound_routes.router)
 
 app.include_router(api_router)
 
@@ -164,5 +182,5 @@ app.add_middleware(
 
 if __name__ == "__main__":
     import uvicorn
-    # Use "server:app" string format for reload support
-    uvicorn.run("server:app", host="0.0.0.0", port=80, reload=True)
+    port = int(os.environ.get("PORT", 80))
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)

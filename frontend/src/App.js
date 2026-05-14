@@ -14,6 +14,8 @@ import RelaysPage from "@/pages/RelaysPage";
 import LogsPage from "@/pages/LogsPage";
 import DeliverabilityPage from "@/pages/DeliverabilityPage";
 import SettingsPage from "@/pages/SettingsPage";
+import InboundPage from "@/pages/InboundPage";
+import WorkerPage from "@/pages/WorkerPage";
 
 function Protected({ children }) {
   const { user } = useAuth();
@@ -44,6 +46,8 @@ export default function App() {
             <Route path="/mailboxes" element={<Protected><MailboxesPage /></Protected>} />
             <Route path="/aliases" element={<Protected><AliasesPage /></Protected>} />
             <Route path="/relays" element={<Protected><RelaysPage /></Protected>} />
+            <Route path="/worker" element={<Protected><WorkerPage /></Protected>} />
+            <Route path="/inbound" element={<Protected><InboundPage /></Protected>} />
             <Route path="/logs" element={<Protected><LogsPage /></Protected>} />
             <Route path="/deliverability" element={<Protected><DeliverabilityPage /></Protected>} />
             <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />

@@ -41,6 +41,34 @@ services:
     depends_on: [backend]
     networks: [relayd]
 
+  worker:
+    build: ./backend
+    container_name: relayd-worker
+    command: python worker.py
+    restart: unless-stopped
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      DB_NAME: "relayd_db"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks: [relayd]
+
+  inbound:
+    build: ./backend
+    container_name: relayd-inbound
+    command: python inbound.py
+    restart: unless-stopped
+    ports:
+      - "25:25"
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      DB_NAME: "relayd_db"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks: [relayd]
+
 volumes:
   mongo_data:
 

@@ -25,6 +25,7 @@ const PROVIDER_META = {
   ses:     { label: "Amazon SES",   wired: false, fields: ["access_key_id", "secret_access_key", "region"] },
   brevo:   { label: "Brevo",        wired: false, fields: ["api_key"] },
   smtp2go: { label: "SMTP2GO",      wired: false, fields: ["api_key"] },
+  direct:  { label: "System (Direct MX)", wired: true, fields: [] },
 };
 
 const DEFAULT_CFG = {
@@ -33,6 +34,7 @@ const DEFAULT_CFG = {
   ses: { access_key_id: "", secret_access_key: "", region: "us-east-1" },
   brevo: { api_key: "" },
   smtp2go: { api_key: "" },
+  direct: {},
 };
 
 function ProviderFields({ type, cfg, setCfg }) {
@@ -87,6 +89,20 @@ function ProviderFields({ type, cfg, setCfg }) {
         <div className="space-y-2"><Label>Region</Label>
           <Input value={cfg.region} onChange={(e) => setCfg({ ...cfg, region: e.target.value })} /></div>
       </>
+    );
+  }
+  if (type === "direct") {
+    return (
+      <div className="p-4 rounded-md border border-border bg-muted/30 text-sm space-y-2">
+        <div className="flex items-center gap-2 font-semibold text-foreground">
+          <AlertCircle className="h-4 w-4 text-blue-500" />
+          Zero-Config Required
+        </div>
+        <p className="text-muted-foreground leading-relaxed">
+          The system will perform <strong>MX Lookups</strong> and deliver mail directly to the recipient's servers. 
+          Make sure your server IP has a <strong>PTR record</strong> and <strong>Port 25</strong> is open.
+        </p>
+      </div>
     );
   }
   // brevo / smtp2go
@@ -281,7 +297,7 @@ export default function RelaysPage() {
           <TableBody data-testid="relays-table-body">
             {items.length === 0 && (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">
-                No relays yet. Add Resend or a Generic SMTP provider to start sending.
+                No relays yet. Add Resend, SMTP, or use <strong>System (Direct MX)</strong> to start sending.
               </TableCell></TableRow>
             )}
             {items.map((r) => (

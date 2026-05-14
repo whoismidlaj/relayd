@@ -11,12 +11,29 @@ from services.relay_service import send_email
 
 router = APIRouter(tags=["relays"])
 
-PROVIDER_TYPES = ("smtp", "resend", "ses", "brevo", "smtp2go")
+PROVIDER_TYPES = ("smtp", "resend", "ses", "brevo", "smtp2go", "direct")
+
+@router.get("/relays/tasks")
+async def list_tasks(user: dict = Depends(get_current_user), status: Optional[str] = None, limit: int = 50):
+    from server import db
+    query = {"user_id": user["id"]}
+    if status:
+        query["status"] = status
+    items = await db.tasks.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return items
+
+@router.get("/relays/tasks/stats")
+async def task_stats(user: dict = Depends(get_current_user)):
+    from server import db
+    pending = await db.tasks.count_documents({"user_id": user["id"], "status": {"$in": ["pending", "retrying"]}})
+    failed = await db.tasks.count_documents({"user_id": user["id"], "status": "failed"})
+    completed = await db.tasks.count_documents({"user_id": user["id"], "status": "completed"})
+    return {"pending": pending, "failed": failed, "completed": completed}
 
 
 class RelayIn(BaseModel):
     name: str
-    type: Literal["smtp", "resend", "ses", "brevo", "smtp2go"]
+    type: Literal["smtp", "resend", "ses", "brevo", "smtp2go", "direct"]
     config: dict
     priority: int = 100
     is_default: bool = False
@@ -140,9 +157,19 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
 
     for prov in providers:
         for attempt_n in range(1, max_retries + 1):
+            # If it's a direct send, we need to inject DKIM info from the domain
+            if prov.get("type") == "direct" or prov.get("id") == "virtual-direct":
+                from_domain = payload.from_email.split('@')[-1]
+                domain_doc = await db.domains.find_one({"user_id": user["id"], "name": from_domain})
+                if domain_doc:
+                    prov["config"] = {
+                        "dkim_private_key": domain_doc.get("dkim_private_key"),
+                        "dkim_selector": domain_doc.get("dkim_selector", "mail")
+                    }
+
             result = await _attempt_send(prov, payload)
             attempts.append({
-                "provider_id": prov["id"], "provider_name": prov["name"], "type": prov["type"],
+                "provider_id": prov.get("id"), "provider_name": prov.get("name"), "type": prov.get("type"),
                 "attempt": attempt_n, "ok": result["ok"],
                 "error": result.get("error"), "message_id": result.get("message_id"),
             })
@@ -154,6 +181,32 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
                 await asyncio.sleep(0.5)
         if final_result and final_result.get("ok"):
             break
+
+    # FINAL FALLBACK: If everything failed, try a virtual direct send
+    if not final_result or not final_result.get("ok"):
+        if payload.use_failover:
+            from_domain = payload.from_email.split('@')[-1]
+            domain_doc = await db.domains.find_one({"user_id": user["id"], "name": from_domain})
+            
+            virtual_direct = {
+                "id": "virtual-direct",
+                "name": "System Fallback (Direct MX)",
+                "type": "direct",
+                "config": {
+                    "dkim_private_key": domain_doc.get("dkim_private_key") if domain_doc else None,
+                    "dkim_selector": domain_doc.get("dkim_selector", "mail") if domain_doc else "mail"
+                }
+            }
+            
+            result = await _attempt_send(virtual_direct, payload)
+            attempts.append({
+                "provider_id": "virtual-direct", "provider_name": "System Fallback (Direct MX)", "type": "direct",
+                "attempt": 1, "ok": result["ok"],
+                "error": result.get("error"), "message_id": result.get("message_id"),
+            })
+            if result["ok"]:
+                final_result = result
+                used_provider = virtual_direct
 
     status = "sent" if (final_result and final_result.get("ok")) else "failed"
     log = {
