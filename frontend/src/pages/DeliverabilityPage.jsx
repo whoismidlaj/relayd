@@ -4,13 +4,13 @@ import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw, AlertCircle, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
-function Pill({ ok, label }) {
+function Pill({ ok, label, error }) {
   return (
     <div className="flex items-center gap-1.5">
-      {ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
+      {ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : error ? <XCircle className="h-3.5 w-3.5 text-destructive" /> : <AlertCircle className="h-3.5 w-3.5 text-amber-500" />}
       <span className="text-xs font-mono uppercase tracking-wider">{label}</span>
     </div>
   );
@@ -64,25 +64,38 @@ export default function DeliverabilityPage() {
                 </Badge>
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-              <Pill ok={d.checks.spf?.valid} label="SPF" />
-              <Pill ok={d.checks.dkim?.valid} label="DKIM" />
-              <Pill ok={d.checks.dmarc?.valid} label="DMARC" />
-              <Pill ok={d.checks.mx?.valid} label="MX" />
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-3">
+              <Pill ok={d.checks.spf?.valid} label="SPF" error={!d.checks.spf?.valid} />
+              <Pill ok={d.checks.dkim?.valid && d.checks.dkim?.matches_expected} label="DKIM" error={!d.checks.dkim?.valid} />
+              <Pill ok={d.checks.dmarc?.valid} label="DMARC" error={!d.checks.dmarc?.valid} />
+              <Pill ok={d.checks.mx?.valid} label="MX" error={!d.checks.mx?.valid} />
+              <Pill ok={!d.checks.dnsbl?.listed} label="DNSBL" error={d.checks.dnsbl?.listed} />
+              <Pill ok={d.checks.ptr?.valid} label="PTR" error={!d.checks.ptr?.valid} />
             </div>
-            <div className="mt-4 pt-3 border-t border-border space-y-2">
-              <div className="text-xs">
-                <span className="text-muted-foreground">SPF:</span>{" "}
-                <span className="font-mono">{d.checks.spf?.found || "—"}</span>
+            
+            <div className="mt-4 pt-3 border-t border-border grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">Raw Records</div>
+                <div className="text-xs"><span className="text-muted-foreground">SPF:</span> <span className="font-mono">{d.checks.spf?.found || "—"}</span></div>
+                <div className="text-xs"><span className="text-muted-foreground">DMARC:</span> <span className="font-mono">{d.checks.dmarc?.found || "—"}</span></div>
+                <div className="text-xs"><span className="text-muted-foreground">MX IP:</span> <span className="font-mono">{d.checks.ip || "—"}</span></div>
               </div>
-              <div className="text-xs">
-                <span className="text-muted-foreground">DMARC:</span>{" "}
-                <span className="font-mono">{d.checks.dmarc?.found || "—"}</span>
-              </div>
-              <div className="text-xs">
-                <span className="text-muted-foreground">MX:</span>{" "}
-                <span className="font-mono">{(d.checks.mx?.found || []).join(", ") || "—"}</span>
-              </div>
+
+              {d.checks.recommendations?.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">Diagnostics</div>
+                  {d.checks.recommendations.map((r, i) => (
+                    <div key={i} className={`text-xs p-2.5 rounded-md flex items-start gap-2 ${
+                      r.type === 'critical' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                      r.type === 'warning' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                      'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                    }`}>
+                      {r.type === 'critical' ? <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+                      <span className="leading-relaxed">{r.msg}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </Card>
         ))}

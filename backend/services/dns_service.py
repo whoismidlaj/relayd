@@ -129,18 +129,104 @@ def check_mx(domain: str, expected_host: Optional[str] = None) -> dict:
     return {"valid": len(records) > 0, "matches_expected": matches, "found": records}
 
 
+def check_dnsbl(ip: str) -> dict:
+    bls = ["zen.spamhaus.org", "dnsbl.sorbs.net", "b.barracudacentral.org", "bl.spamcop.net"]
+    results = {}
+    listed = False
+    parts = ip.split('.')
+    if len(parts) == 4:
+        rev_ip = f"{parts[3]}.{parts[2]}.{parts[1]}.{parts[0]}"
+        for bl in bls:
+            try:
+                answers = dns.resolver.resolve(f"{rev_ip}.{bl}", "A", lifetime=2.0)
+                if answers:
+                    results[bl] = True
+                    listed = True
+            except Exception:
+                results[bl] = False
+    return {"listed": listed, "details": results}
+
+
+def check_ptr(ip: str) -> dict:
+    try:
+        import dns.reversename
+        rev_name = dns.reversename.from_address(ip)
+        answers = dns.resolver.resolve(rev_name, "PTR", lifetime=2.0)
+        return {"valid": True, "found": [str(a) for a in answers]}
+    except Exception:
+        return {"valid": False, "found": []}
+
+
 def run_full_check(domain: dict) -> dict:
-    """Run all four checks on a domain document."""
+    """Run all checks including SPF, DKIM, DMARC, MX, PTR, and DNSBL."""
     name = domain["name"]
     selector = domain.get("dkim_selector", "mail")
     dkim_pub = domain.get("dkim_public_key")
     mail_host = domain.get("mail_host", "mail")
     expected_mx = f"{mail_host}.{name}"
+    
+    spf_c = check_spf(name)
+    dkim_c = check_dkim(name, selector, dkim_pub)
+    dmarc_c = check_dmarc(name)
+    mx_c = check_mx(name, expected_mx)
+
+    ip = None
+    dnsbl_c = {"listed": False, "details": {}}
+    ptr_c = {"valid": False, "found": []}
+
+    if mx_c["found"]:
+        try:
+            # Extract first MX hostname
+            mx_hostname = mx_c["found"][0].split()[-1]
+            a_answers = dns.resolver.resolve(mx_hostname, "A", lifetime=2.0)
+            ip = str(a_answers[0])
+            dnsbl_c = check_dnsbl(ip)
+            ptr_c = check_ptr(ip)
+        except Exception:
+            pass
+
+    recommendations = []
+    
+    # DMARC Analysis
+    dmarc_rec = dmarc_c.get("found")
+    if not dmarc_rec:
+        recommendations.append({"type": "critical", "msg": "Missing DMARC policy. This makes you vulnerable to domain spoofing."})
+    else:
+        if "p=none" in dmarc_rec.lower():
+            recommendations.append({"type": "warning", "msg": "Weak DMARC policy (p=none). Upgrade to quarantine or reject to protect your domain reputation."})
+        if "rua=" not in dmarc_rec.lower():
+            recommendations.append({"type": "info", "msg": "DMARC missing RUA tag. You are not receiving aggregate spam reports from Gmail/Outlook."})
+
+    # SPF Analysis
+    if not spf_c.get("valid"):
+        recommendations.append({"type": "critical", "msg": "Missing SPF record. Your emails will likely go to spam."})
+    elif "~all" in spf_c.get("found", "").lower():
+        recommendations.append({"type": "info", "msg": "SPF uses SoftFail (~all). Consider StrictFail (-all) when ready."})
+
+    # DKIM Analysis
+    if not dkim_c.get("valid"):
+        recommendations.append({"type": "critical", "msg": "Missing DKIM signature. Essential for passing modern spam filters."})
+    elif not dkim_c.get("matches_expected"):
+        recommendations.append({"type": "critical", "msg": "DKIM misalignment. The public key does not match Relayd's private key."})
+
+    # PTR Analysis
+    if ip and not ptr_c.get("valid"):
+        recommendations.append({"type": "critical", "msg": f"Missing Reverse DNS (PTR) for IP {ip}. Major providers like Gmail will hard bounce your mail."})
+
+    # Blacklist Analysis
+    if dnsbl_c.get("listed"):
+        bl_names = [k for k, v in dnsbl_c.get("details", {}).items() if v]
+        recommendations.append({"type": "critical", "msg": f"Your MX IP ({ip}) is listed on blacklists: {', '.join(bl_names)}"})
+
     return {
-        "spf": check_spf(name),
-        "dkim": check_dkim(name, selector, dkim_pub),
-        "dmarc": check_dmarc(name),
-        "mx": check_mx(name, expected_mx),
+        "spf": spf_c,
+        "dkim": dkim_c,
+        "dmarc": dmarc_c,
+        "mx": mx_c,
+        "dnsbl": dnsbl_c,
+        "ptr": ptr_c,
+        "ip": ip,
+        "recommendations": recommendations
     }
 
 
