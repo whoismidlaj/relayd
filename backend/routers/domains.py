@@ -134,3 +134,58 @@ async def verify_domain(domain_id: str, user: dict = Depends(get_current_user)):
         }},
     )
     return {"checks": checks, "score": score, "verified": verified}
+
+
+class CloudflareSyncIn(BaseModel):
+    api_token: str
+
+@router.post("/{domain_id}/cloudflare-sync")
+async def sync_cloudflare(domain_id: str, payload: CloudflareSyncIn, user: dict = Depends(get_current_user)):
+    from server import db
+    import httpx
+    
+    d = await db.domains.find_one({"id": domain_id, "user_id": user["id"]})
+    if not d:
+        raise HTTPException(status_code=404, detail="Domain not found")
+        
+    records = generate_dns_records(d["name"], d["dkim_selector"], d["dkim_public_key"], d.get("mail_host", "mail"))
+    
+    headers = {
+        "Authorization": f"Bearer {payload.api_token}",
+        "Content-Type": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        # 1. Get Zone ID
+        r = await client.get(f"https://api.cloudflare.com/client/v4/zones?name={d['name']}", headers=headers)
+        if r.status_code != 200:
+            raise HTTPException(status_code=400, detail="Invalid Cloudflare API token or domain not found in Cloudflare account.")
+            
+        zones = r.json().get("result", [])
+        if not zones:
+            raise HTTPException(status_code=404, detail="Zone not found in your Cloudflare account.")
+            
+        zone_id = zones[0]["id"]
+        
+        # 2. Push records
+        results = []
+        for rec in records:
+            cf_rec = {
+                "type": rec["kind"],
+                "name": rec["name"],
+                "content": rec["value"],
+                "ttl": 1, # Auto
+            }
+            if rec["kind"] == "MX":
+                # Cloudflare expects priority in a separate field for MX
+                parts = rec["value"].split(" ", 1)
+                if len(parts) == 2:
+                    cf_rec["priority"] = int(parts[0])
+                    cf_rec["content"] = parts[1]
+                else:
+                    cf_rec["priority"] = 10
+            
+            resp = await client.post(f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records", headers=headers, json=cf_rec)
+            results.append({"record": rec["kind"], "success": resp.status_code == 200, "detail": resp.json()})
+            
+    return {"ok": True, "results": results}

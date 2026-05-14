@@ -38,6 +38,7 @@ class RelayIn(BaseModel):
     priority: int = 100
     is_default: bool = False
     daily_quota: int = 0
+    weight: int = 100
     match_domains: list[str] = []
     match_tags: list[str] = []
 
@@ -49,6 +50,7 @@ class RelayUpdate(BaseModel):
     is_default: Optional[bool] = None
     enabled: Optional[bool] = None
     daily_quota: Optional[int] = None
+    weight: Optional[int] = None
     match_domains: Optional[list[str]] = None
     match_tags: Optional[list[str]] = None
 
@@ -84,6 +86,7 @@ async def create_relay(payload: RelayIn, user: dict = Depends(get_current_user))
         "is_default": payload.is_default,
         "enabled": True,
         "daily_quota": payload.daily_quota,
+        "weight": payload.weight,
         "usage_today": 0,
         "usage_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "health_status": "healthy",
@@ -178,7 +181,58 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
                 score -= 10
             return score
             
-        providers = sorted(all_relays, key=score_relay)
+        import itertools
+        import random
+        
+        # 1. Compute base scores and defaults
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        for r in all_relays:
+            r["_computed_score"] = score_relay(r)
+            r["_weight"] = r.get("weight", 100)
+            
+            # Reset usage if it's a new day so scheduling calculations are accurate
+            usage_date = r.get("usage_date", "1970-01-01")
+            if usage_date != today_str:
+                r["usage_today"] = 0
+                r["usage_date"] = today_str
+
+        # 2. Sort by computed priority score
+        all_relays.sort(key=lambda x: x["_computed_score"])
+        
+        # 3. Apply Multi-Provider Load Balancing & Rate-Limit Aware Scheduling
+        providers = []
+        for score, group in itertools.groupby(all_relays, key=lambda x: x["_computed_score"]):
+            group_list = list(group)
+            
+            # Rate-limit aware scheduler: Dynamically reduce weight if nearing quota
+            for r in group_list:
+                quota = r.get("daily_quota", 0)
+                usage = r.get("usage_today", 0)
+                if quota > 0:
+                    percent_used = usage / quota
+                    if percent_used >= 1.0:
+                        r["_weight"] = 0  # Exhausted
+                    elif percent_used > 0.90:
+                        r["_weight"] = int(r["_weight"] * 0.1) # Throttle to 10%
+                    elif percent_used > 0.75:
+                        r["_weight"] = int(r["_weight"] * 0.5) # Throttle to 50%
+            
+            # Weighted random selection within this priority tier
+            while group_list:
+                total_weight = sum(r["_weight"] for r in group_list)
+                if total_weight <= 0:
+                    chosen = random.choice(group_list)
+                else:
+                    rand_val = random.uniform(0, total_weight)
+                    upto = 0
+                    for r in group_list:
+                        if upto + r["_weight"] >= rand_val:
+                            chosen = r
+                            break
+                        upto += r["_weight"]
+                
+                providers.append(chosen)
+                group_list.remove(chosen)
         
         if not payload.use_failover and providers:
             providers = [providers[0]]

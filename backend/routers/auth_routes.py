@@ -75,6 +75,18 @@ async def login(payload: LoginIn, response: Response, request: Request):
                 raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
 
     user = await db.users.find_one({"email": email})
+    is_mailbox = False
+    
+    if not user:
+        # Check if it's a mailbox login
+        user = await db.mailboxes.find_one({"address": email})
+        if user:
+            is_mailbox = True
+            # Normalize to match user dict structure for auth
+            user["email"] = user["address"]
+            user["role"] = "mailbox"
+            user["_id"] = user["id"]
+
     if not user or not verify_password(payload.password, user["password_hash"]):
         new_count = (attempt.get("count", 0) if attempt else 0) + 1
         update = {"identifier": identifier, "count": new_count, "updated_at": datetime.now(timezone.utc)}
@@ -86,7 +98,9 @@ async def login(payload: LoginIn, response: Response, request: Request):
 
     await db.login_attempts.delete_one({"identifier": identifier})
     uid = str(user["_id"])
-    access = create_access_token(uid, email)
+    role = "mailbox" if is_mailbox else user.get("role", "user")
+    
+    access = create_access_token(uid, email, role)
     refresh = create_refresh_token(uid)
     set_auth_cookies(response, access, refresh)
     return _user_out(user)
@@ -128,3 +142,28 @@ async def refresh_token(request: Request, response: Response):
         raise HTTPException(status_code=401, detail="Refresh token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+class ImapAuthIn(BaseModel):
+    username: str
+    password: str
+
+@router.post("/imap")
+async def imap_auth(payload: ImapAuthIn):
+    """
+    HTTP Auth bridge for external IMAP/SMTP servers (like Stalwart or Dovecot).
+    They can hit this endpoint to verify user credentials.
+    """
+    from server import db
+    from auth import verify_password
+
+    # 1. Try Mailbox Auth
+    mailbox = await db.mailboxes.find_one({"address": payload.username, "active": True})
+    if mailbox and verify_password(payload.password, mailbox["password_hash"]):
+        return {"status": "ok", "user": payload.username, "role": "mailbox"}
+        
+    # 2. Try Admin Auth (for catch-all or testing)
+    admin = await db.users.find_one({"email": payload.username})
+    if admin and verify_password(payload.password, admin["password_hash"]):
+        return {"status": "ok", "user": payload.username, "role": admin["role"]}
+        
+    raise HTTPException(status_code=401, detail="Invalid credentials")

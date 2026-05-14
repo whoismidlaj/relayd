@@ -5,8 +5,18 @@ import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, ChevronLeft, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Copy, ChevronLeft, RefreshCw, CheckCircle2, XCircle, Cloud } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const KIND_COLOR = {
   MX: "text-blue-500 border-blue-500/40",
@@ -66,6 +76,9 @@ export default function DomainDetailPage() {
   const [records, setRecords] = useState([]);
   const [checks, setChecks] = useState(null);
   const [verifying, setVerifying] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [cfToken, setCfToken] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   const load = async () => {
     try {
@@ -98,6 +111,25 @@ export default function DomainDetailPage() {
     }
   };
 
+  const handleSyncCloudflare = async (e) => {
+    e.preventDefault();
+    if (!cfToken) return toast.error("API Token required");
+    setSyncing(true);
+    try {
+      const { data } = await api.post(`/domains/${id}/cloudflare-sync`, { api_token: cfToken });
+      const successCount = data.results.filter(r => r.success).length;
+      toast.success(`Successfully synced ${successCount} DNS records to Cloudflare!`);
+      setSyncOpen(false);
+      setCfToken("");
+      // Run a verification right after syncing
+      verify();
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!domain) return <AppShell><div className="text-muted-foreground">Loading…</div></AppShell>;
 
   return (
@@ -110,9 +142,14 @@ export default function DomainDetailPage() {
         description={`DKIM selector: ${domain.dkim_selector} • Mail host: ${domain.mail_host}.${domain.name}`}
         testId="domain-detail-header"
         actions={
-          <Button onClick={verify} disabled={verifying} data-testid="run-verification-button">
-            <RefreshCw className={`h-4 w-4 ${verifying ? "animate-spin" : ""}`} /> Run verification
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setSyncOpen(true)}>
+              <Cloud className="h-4 w-4 mr-2 text-blue-500" /> Auto-Sync (Cloudflare)
+            </Button>
+            <Button onClick={verify} disabled={verifying} data-testid="run-verification-button">
+              <RefreshCw className={`h-4 w-4 mr-2 ${verifying ? "animate-spin" : ""}`} /> Run verification
+            </Button>
+          </>
         }
       />
 
@@ -145,6 +182,40 @@ export default function DomainDetailPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
+        <DialogContent>
+          <form onSubmit={handleSyncCloudflare}>
+            <DialogHeader>
+              <DialogTitle>Sync DNS with Cloudflare</DialogTitle>
+              <DialogDescription>
+                Provide a Cloudflare API Token (Edit Zone DNS permissions). We will automatically push all required MX, SPF, DKIM, and DMARC records to your Cloudflare zone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label>Cloudflare API Token</Label>
+              <Input
+                type="password"
+                placeholder="cf_token_..."
+                value={cfToken}
+                onChange={(e) => setCfToken(e.target.value)}
+                className="mt-2"
+                required
+              />
+              <p className="text-xs text-muted-foreground mt-2">
+                Tokens are not stored. They are only used once to push records.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setSyncOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={syncing || !cfToken}>
+                {syncing ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Cloud className="h-4 w-4 mr-2" />}
+                Push Records
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

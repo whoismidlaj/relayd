@@ -118,7 +118,7 @@ export default function RelaysPage() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, match_domains: "", match_tags: "" });
+  const [form, setForm] = useState({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, weight: 100, match_domains: "", match_tags: "" });
   const [cfg, setCfg] = useState({ ...DEFAULT_CFG.resend });
   const [test, setTest] = useState({ from_email: "onboarding@resend.dev", to: "", subject: "Hello from Relayd", body: "This is a test from Relayd. ✉️", relay_id: "", tags: "" });
   const [sending, setSending] = useState(false);
@@ -143,7 +143,7 @@ export default function RelaysPage() {
       });
       toast.success("Relay added");
       setOpen(false);
-      setForm({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, match_domains: "", match_tags: "" });
+      setForm({ name: "", type: "resend", priority: 100, is_default: false, daily_quota: 0, weight: 100, match_domains: "", match_tags: "" });
       setCfg({ ...DEFAULT_CFG.resend });
       refresh();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
@@ -282,6 +282,22 @@ export default function RelaysPage() {
                       </label>
                     </div>
                   </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-2"><Label>Priority</Label>
+                      <Input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: parseInt(e.target.value) })}
+                             data-testid="relay-priority-input" />
+                      <p className="text-[10px] text-muted-foreground">Lower runs first (e.g. 10 runs before 20).</p>
+                    </div>
+                    <div className="space-y-2"><Label>Daily Quota</Label>
+                      <Input type="number" value={form.daily_quota} onChange={(e) => setForm({ ...form, daily_quota: parseInt(e.target.value) })}
+                             data-testid="relay-quota-input" />
+                      <p className="text-[10px] text-muted-foreground">0 = unlimited</p>
+                    </div>
+                    <div className="space-y-2"><Label>Load Balance Weight</Label>
+                      <Input type="number" value={form.weight} onChange={(e) => setForm({ ...form, weight: parseInt(e.target.value) })} />
+                      <p className="text-[10px] text-muted-foreground">Used if priorities are equal. (e.g. 70/30 split).</p>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2"><Label>Match Domains (comma separated)</Label>
                       <Input value={form.match_domains} onChange={(e) => setForm({ ...form, match_domains: e.target.value })}
@@ -309,6 +325,7 @@ export default function RelaysPage() {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Priority</TableHead>
+              <TableHead>Weight</TableHead>
               <TableHead>Daily Quota</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Default</TableHead>
@@ -318,7 +335,7 @@ export default function RelaysPage() {
           </TableHeader>
           <TableBody data-testid="relays-table-body">
             {items.length === 0 && (
-              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-10">
                 No relays yet. Add Resend, SMTP, or use <strong>System (Direct MX)</strong> to start sending.
               </TableCell></TableRow>
             )}
@@ -329,6 +346,7 @@ export default function RelaysPage() {
                   <Badge variant="outline">{PROVIDER_META[r.type]?.label || r.type}</Badge>
                 </TableCell>
                 <TableCell className="font-mono">{r.priority}</TableCell>
+                <TableCell className="font-mono text-muted-foreground">{r.weight || 100}</TableCell>
                 <TableCell>
                   {(r.daily_quota && r.daily_quota > 0) ? (
                     <div className="flex flex-col gap-1 w-24">

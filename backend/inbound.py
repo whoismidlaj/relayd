@@ -75,6 +75,9 @@ class RelaydHandler:
                 
                 user_id = domain_doc["user_id"]
                 
+                # Check if this recipient is a dedicated Mailbox
+                is_mailbox = await db.mailboxes.count_documents({"address": rcpt, "active": True}) > 0
+
                 # Save message to DB
                 msg_id = str(uuid.uuid4())
                 message_doc = {
@@ -88,13 +91,24 @@ class RelaydHandler:
                     "headers": dict(msg.items()),
                     "raw_size": len(content),
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                    "read": False
+                    "read": False,
+                    "is_mailbox": is_mailbox
                 }
                 
                 await db.inbound_messages.insert_one(message_doc)
                 logger.info(f"Stored message {msg_id} for {rcpt}")
                 
-                # TODO: Trigger webhooks or forwarding logic here
+                # Forward to Stalwart IMAP Server if it's a dedicated mailbox
+                if is_mailbox:
+                    import smtplib
+                    try:
+                        # Attempt to forward to internal Stalwart container on port 2525
+                        with smtplib.SMTP("stalwart", 2525) as smtp:
+                            smtp.send_message(msg, from_addr=mail_from, to_addrs=[rcpt])
+                        logger.info(f"Forwarded {msg_id} to Stalwart IMAP server for {rcpt}")
+                    except Exception as e:
+                        # It's fine if Stalwart isn't running, it just stays in the Webmail DB
+                        logger.warning(f"Stalwart IMAP forward skipped: {e}")
                 
             return '250 Message accepted for delivery'
         except Exception as e:

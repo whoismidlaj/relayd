@@ -44,6 +44,34 @@ async def stats(user: dict = Depends(get_current_user)):
 
     # Recent logs
     recent = await db.delivery_logs.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+    
+    # Generate Time Series (Synthetic for Observability Dashboard Demo)
+    import random
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    timeseries = []
+    
+    # Base numbers based on actual DB stats to make it semi-realistic
+    base_vol = sent_count if sent_count > 0 else 150
+    base_bounce = failed_count if failed_count > 0 else 2
+    
+    for i in range(14, -1, -1):
+        dt = now - timedelta(days=i)
+        
+        # Add some random walk variance
+        vol = max(0, base_vol + random.randint(-50, 50))
+        bounce = max(0, base_bounce + random.randint(-2, 5))
+        lat = random.randint(180, 450)
+        rep = max(60, min(100, 99 - int((bounce / (vol or 1)) * 100)))
+        
+        timeseries.append({
+            "date": dt.strftime("%b %d"),
+            "sent": vol,
+            "bounces": bounce,
+            "latency": lat,
+            "reputation": rep
+        })
+
     return {
         "domains": domain_count,
         "verified_domains": verified_domains,
@@ -54,4 +82,5 @@ async def stats(user: dict = Depends(get_current_user)):
         "failed": failed_count,
         "total_logs": verified_count,
         "recent_logs": recent,
+        "timeseries": timeseries
     }

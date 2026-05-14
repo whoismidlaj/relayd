@@ -19,7 +19,7 @@ import WorkerPage from "@/pages/WorkerPage";
 import TokensPage from "@/pages/TokensPage";
 import DocsPage from "@/pages/DocsPage";
 
-function Protected({ children }) {
+function Protected({ children, requireAdmin }) {
   const { user } = useAuth();
   if (user === null) {
     return (
@@ -29,6 +29,11 @@ function Protected({ children }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  
+  if (requireAdmin && user.role === "mailbox") {
+    return <Navigate to="/inbound" replace />;
+  }
+  
   return children;
 }
 
@@ -42,19 +47,22 @@ export default function App() {
             <Route path="/register" element={<AuthPage mode="register" />} />
 
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Protected><DashboardPage /></Protected>} />
-            <Route path="/domains" element={<Protected><DomainsPage /></Protected>} />
-            <Route path="/domains/:id" element={<Protected><DomainDetailPage /></Protected>} />
-            <Route path="/mailboxes" element={<Protected><MailboxesPage /></Protected>} />
-            <Route path="/aliases" element={<Protected><AliasesPage /></Protected>} />
-            <Route path="/relays" element={<Protected><RelaysPage /></Protected>} />
-            <Route path="/worker" element={<Protected><WorkerPage /></Protected>} />
+            <Route path="/dashboard" element={<Protected requireAdmin><DashboardPage /></Protected>} />
+            <Route path="/domains" element={<Protected requireAdmin><DomainsPage /></Protected>} />
+            <Route path="/domains/:id" element={<Protected requireAdmin><DomainDetailPage /></Protected>} />
+            <Route path="/mailboxes" element={<Protected requireAdmin><MailboxesPage /></Protected>} />
+            <Route path="/aliases" element={<Protected requireAdmin><AliasesPage /></Protected>} />
+            <Route path="/relays" element={<Protected requireAdmin><RelaysPage /></Protected>} />
+            <Route path="/worker" element={<Protected requireAdmin><WorkerPage /></Protected>} />
+            
+            {/* Accessible by Mailbox users */}
             <Route path="/inbound" element={<Protected><InboundPage /></Protected>} />
-            <Route path="/logs" element={<Protected><LogsPage /></Protected>} />
-            <Route path="/deliverability" element={<Protected><DeliverabilityPage /></Protected>} />
-            <Route path="/tokens" element={<Protected><TokensPage /></Protected>} />
-            <Route path="/docs" element={<Protected><DocsPage /></Protected>} />
-            <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
+            
+            <Route path="/logs" element={<Protected requireAdmin><LogsPage /></Protected>} />
+            <Route path="/deliverability" element={<Protected requireAdmin><DeliverabilityPage /></Protected>} />
+            <Route path="/tokens" element={<Protected requireAdmin><TokensPage /></Protected>} />
+            <Route path="/docs" element={<Protected requireAdmin><DocsPage /></Protected>} />
+            <Route path="/settings" element={<Protected requireAdmin><SettingsPage /></Protected>} />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: relayd-mongo
+    restart: always
+    volumes:
+      - relayd_mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: relayd_db
+
+  backend:
+    build: 
+      context: ./backend
+    container_name: relayd-api
+    restart: always
+    depends_on:
+      - mongodb
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=relayd_db
+      - JWT_SECRET=${JWT_SECRET:-generate_a_secure_random_string_here}
+      - HOSTNAME=${DOMAIN:-relayd.local}
+    command: python server.py
+
+  inbound:
+    build: 
+      context: ./backend
+    container_name: relayd-inbound
+    restart: always
+    depends_on:
+      - mongodb
+    ports:
+      - "25:25"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=relayd_db
+    command: python inbound.py
+
+  worker:
+    build: 
+      context: ./backend
+    container_name: relayd-worker
+    restart: always
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=relayd_db
+    command: python worker.py
+
+  frontend:
+    build: 
+      context: ./frontend
+    container_name: relayd-ui
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+  stalwart:
+    image: stalwartlabs/mail-server:latest
+    container_name: relayd-stalwart
+    restart: always
+    ports:
+      - "143:143"    # IMAP
+      - "993:993"    # IMAPS
+      - "587:587"    # SMTP Submission (STARTTLS)
+      - "465:465"    # SMTP Submission (Implicit TLS)
+      - "8080:8080"  # JMAP / WebAdmin (internal/optional)
+    volumes:
+      - relayd_stalwart_data:/opt/stalwart-mail/data
+      - relayd_stalwart_etc:/opt/stalwart-mail/etc
+    environment:
+      # We tell Stalwart to authenticate against our FastAPI endpoint
+      - STALWART_AUTH_ENDPOINT=http://backend:8000/api/auth/imap
+    depends_on:
+      - backend
+
+volumes:
+  relayd_mongo_data:
+  relayd_stalwart_data:
+  relayd_stalwart_etc:

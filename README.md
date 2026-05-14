@@ -1,4 +1,4 @@
-# Relayd — Modern Self-Hostable Email Orchestration Platform
+# Relayd (v1.0) — Modern Self-Hostable Email Orchestration Platform
 
 > A lightweight, modular, developer-friendly control plane for your email infrastructure.
 > Manage domains, DKIM/SPF/DMARC, mailboxes, aliases and outbound relays — all from a clean dashboard.
@@ -8,7 +8,7 @@ It's a **relay-aware orchestration platform** built for self-hosters, developers
 
 ---
 
-## Features (MVP)
+## Features (v1.0 Production Release)
 
 - **Auth** — JWT-based email/password authentication & API Keys for developers (`re_...`)
 - **Multi-domain management** — add domains, generate DKIM keypairs, custom selectors & mail hosts
@@ -24,7 +24,9 @@ It's a **relay-aware orchestration platform** built for self-hosters, developers
 - **Priority & failover** — set a default provider; if it fails, the queue retries through the rest by priority
 - **Test email send** — full modal with from / to / subject / body and per-relay selection
 - **Delivery logs & Inbound Dashboard** — View outbound sending logs and read incoming parsed messages directly in the UI.
-- **Deliverability dashboard** — per-domain SPF/DKIM/DMARC/MX live checks + composite score
+- **Datadog-style Observability Dashboard** — Time-series charts for Delivery Volume, Bounces, Provider Latency, and Domain Reputation.
+- **Deliverability diagnostics** — per-domain SPF/DKIM/DMARC/MX live checks + composite score.
+- **Cloudflare Auto-Sync** — Instantly push DNS records via API token to bypass manual entry.
 - **Modern responsive UI** — Shadcn UI + Tailwind, dark/light/system theme, IBM Plex Sans + JetBrains Mono
 - **Docker-based self-hostable deployment** — `docker compose up` and you're running
 
@@ -92,6 +94,20 @@ The stack exposes the frontend on **port 8080** and the inbound listener on **po
 | `ADMIN_EMAIL` | `admin@example.com` | Initial admin |
 | `ADMIN_PASSWORD` | `admin123` | Initial admin password |
 | `FRONTEND_URL` | `http://localhost:8080` | CORS allow-list |
+
+---
+
+## ☁️ 1-Click Deployment (Coolify / Dokploy)
+
+Relayd is designed to overlap perfectly with self-hosted PaaS platforms like Coolify. The included `docker-compose.yml` natively supports PaaS deployments.
+
+**Deploying on Coolify:**
+1. Create a new **Docker Compose** resource in Coolify.
+2. Connect your Git repository containing Relayd (or paste the `docker-compose.yml`).
+3. Set your environment variables in the Coolify dashboard:
+   - `JWT_SECRET=your_secure_random_string`
+   - `DOMAIN=relayd.yourdomain.com`
+4. Click **Deploy**. Coolify will automatically map the `frontend` container to your configured domain using Traefik/Caddy, and your background `worker` and `inbound` SMTP listeners will spin up seamlessly.
 
 ---
 

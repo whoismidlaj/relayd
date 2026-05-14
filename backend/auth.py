@@ -27,10 +27,11 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str) -> str:
+def create_access_token(user_id: str, email: str, role: str = "user") -> str:
     payload = {
         "sub": user_id,
         "email": email,
+        "role": role,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES),
         "type": "access",
     }
@@ -114,6 +115,14 @@ async def get_current_user(request: Request) -> dict:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
+            
+        role = payload.get("role", "user")
+        if role == "mailbox":
+            user = await db.mailboxes.find_one({"id": payload["sub"]})
+            if not user:
+                raise HTTPException(status_code=401, detail="Mailbox not found")
+            return {"id": user["id"], "email": user["address"], "role": "mailbox"}
+            
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
