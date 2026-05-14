@@ -1,0 +1,107 @@
+{
+  "project_name": "Email Orchestration Platform",
+  "app_type": "dashboard",
+  "audience": "developers, self-hosters, indie hackers",
+  "theme": {
+    "mode": "system",
+    "supported_modes": ["light", "dark"],
+    "archetype": "4_Swiss_High_Contrast",
+    "vibe": "Objective, rigid, functional, developer-friendly (Vercel/Railway aesthetic)"
+  },
+  "typography": {
+    "fonts": {
+      "headings": "IBM Plex Sans, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "rules": {
+      "h1": "text-3xl sm:text-4xl font-semibold tracking-tight",
+      "h2": "text-2xl sm:text-3xl font-medium tracking-tight",
+      "h3": "text-xl font-medium tracking-tight",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "labels": "text-xs uppercase tracking-[0.2em] font-semibold text-muted-foreground",
+      "dns_records": "font-mono text-sm tracking-tight",
+      "logs": "font-mono text-xs tracking-tight"
+    },
+    "banned_fonts": ["Inter", "Roboto", "Open Sans", "Lato"]
+  },
+  "colors": {
+    "light": {
+      "background": "#FFFFFF",
+      "surface": "#F9FAFB",
+      "border": "#E5E7EB",
+      "text_primary": "#0A0A0A",
+      "text_secondary": "#6B7280",
+      "primary_cta": "#000000",
+      "primary_cta_text": "#FFFFFF",
+      "status_success": "#10B981",
+      "status_warning": "#F59E0B",
+      "status_error": "#EF4444",
+      "accent": "#2563EB"
+    },
+    "dark": {
+      "background": "#0A0A0A",
+      "surface": "#111111",
+      "border": "#262626",
+      "text_primary": "#F9FAFB",
+      "text_secondary": "#A1A1AA",
+      "primary_cta": "#FFFFFF",
+      "primary_cta_text": "#000000",
+      "status_success": "#34D399",
+      "status_warning": "#FBBF24",
+      "status_error": "#F87171",
+      "accent": "#60A5FA"
+    },
+    "rules": {
+      "gradients": "Forbidden. Use solid colors with 1px borders.",
+      "tinted_greys": "Required. Never use pure #808080.",
+      "hover_states": "Must explicitly set text color on hover. Increase contrast on focus."
+    }
+  },
+  "layout": {
+    "grid_strategy": "Control Room Grid",
+    "spacing": "Dense and compact. Use p-4, p-6. gap-4, gap-6.",
+    "radius": "Minimal. max rounded-md (6px) or rounded-sm (4px) for cards and inputs.",
+    "borders": "Expose the skeleton. Use grid borders for data-heavy sections (tables, lists).",
+    "navigation": "Sidebar on desktop, mobile drawer. Fixed top bar for breadcrumbs/actions with glassmorphism (backdrop-blur-md).",
+    "alignment": "Left-align forms, data, and tables. Center-align empty states."
+  },
+  "components": {
+    "cards": "Flat background, 1px subtle border, no shadow. On hover: slight lift (-translate-y-px) and border darkens.",
+    "tables": "Dense. Use mono font for IDs, IPs, and timestamps. Sticky header.",
+    "forms": "Shadcn UI. Left aligned. Use concise labels.",
+    "badges": "Transparent background, 1px solid border matching the status color, tinted text.",
+    "dns_records": "Render in code blocks with 1px border. MUST have one-click 'Copy' button. Use mono font.",
+    "test_email": "Modal dialog with 'To', 'Subject', 'Body' and 'Provider/Relay' select dropdown."
+  },
+  "motion": {
+    "interactions": "Minimalist micro-interactions. Fast transitions (150ms ease-in-out).",
+    "page_load": "Staggered fade-in for lists/tables.",
+    "feedback": "Use Sonner for toast notifications on success/error (e.g., copied to clipboard, email sent)."
+  },
+  "assets": {
+    "icons_library": "lucide-react",
+    "images": {
+      "login_background_light": {
+        "url": "https://images.unsplash.com/photo-1595411425732-e69c1abe2763?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMG1vbm9jaHJvbWUlMjBnZW9tZXRyeXxlbnwwfHx8fDE3Nzg3NDk0ODR8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract white and black striped textile, to be used with 20% opacity as a side panel in login/register page."
+      },
+      "login_background_dark": {
+        "url": "https://images.unsplash.com/photo-1454117096348-e4abbeba002c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMG1vbm9jaHJvbWUlMjBnZW9tZXRyeXxlbnwwfHx8fDE3Nzg3NDk0ODR8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract monochrome wall, to be used with 20% opacity as a side panel in login/register page."
+      }
+    }
+  },
+  "accessibility": {
+    "contrast": "APCA/WCAG AA compliant. Minimum 4.5:1 for standard text.",
+    "testing": "All interactive elements MUST include data-testid (e.g., data-testid='copy-dns-button')."
+  },
+  "instructions_to_main_agent": [
+    "Build a robust sidebar navigation (Domains, Mailboxes, Aliases, Delivery Logs, Relays, Settings).",
+    "Implement light/dark mode toggle in the top nav or bottom of the sidebar.",
+    "For the Domains page, prioritize a clear view of DNS configuration (SPF, DKIM, DMARC, MX) with verification status badges.",
+    "Use JetBrains Mono for all code-like strings (DNS records, logs, config).",
+    "Use Shadcn UI extensively (Tables, Badges, Tabs, Dialogs, Select, Dropdowns).",
+    "Ensure the UI looks like a highly technical, precise developer tool (e.g., Vercel, Resend)."
+  ]
+}
