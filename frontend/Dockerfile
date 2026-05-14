@@ -1,14 +1,14 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install native dependencies required by some node modules in Alpine
-RUN apk add --no-cache libc6-compat python3 make g++
+# Install native dependencies just in case
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY yarn.lock ./
-# Use increased network timeout to prevent Coolify build failures
+# Use increased network timeout
 RUN yarn install --network-timeout 1000000
 
 COPY . .
