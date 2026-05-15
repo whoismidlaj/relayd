@@ -43,24 +43,24 @@ async def lifespan(app: FastAPI):
     db_name = os.environ.get("DB_NAME", "relayd_db")
     
     # Only use TLS if the URL suggests it (Atlas) or if specifically requested
-    use_tls = "mongodb+srv://" in mongo_url or "tls=true" in mongo_url.lower()
+    use_tls = any(x in mongo_url.lower() for x in ["mongodb+srv://", "tls=true", "ssl=true"])
     
     # Connection options for stability (especially on Windows/Atlas)
     client_kwargs = {
         "connectTimeoutMS": 30000,
         "serverSelectionTimeoutMS": 30000,
         "heartbeatFrequencyMS": 10000,
+        "maxIdleTimeMS": 60000,
+        "retryWrites": True,
     }
 
     if use_tls:
         client_kwargs.update({
             "tlsCAFile": certifi.where(),
-            "tlsAllowInvalidCertificates": True,
-            "retryWrites": False,
             "directConnection": False,
         })
         # Only add tls=True if not already in the SRV or URL params
-        if "mongodb+srv://" not in mongo_url and "ssl=" not in mongo_url.lower() and "tls=" not in mongo_url.lower():
+        if not any(x in mongo_url.lower() for x in ["mongodb+srv://", "ssl=", "tls="]):
             client_kwargs["tls"] = True
 
     client = AsyncIOMotorClient(mongo_url, **client_kwargs)
