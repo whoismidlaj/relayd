@@ -72,67 +72,70 @@ class RelaydHandler:
         """Process the incoming email message."""
         global db
         try:
-            peer = session.peer
+            logger.info("--- START handle_DATA ---")
             mail_from = envelope.mail_from
             rcpts = envelope.rcpt_tos
             content = envelope.content  # bytes
             
+            logger.info(f"Incoming: From={mail_from}, To={rcpts}, Size={len(content)}")
+            
             # Parse message
-            msg = BytesParser(policy=default).parsebytes(content)
-            subject = msg.get('subject', '(No Subject)')
-            
-            logger.info(f"Incoming mail from {mail_from} to {rcpts}")
-            
-            for rcpt in rcpts:
-                rcpt = rcpt.lower().strip().strip('<>')
-                domain_name = rcpt.split('@')[-1]
-                
-                # Find the owner of the domain
-                domain_doc = await db.domains.find_one({"name": domain_name})
-                if not domain_doc:
-                    continue
-                
-                user_id = domain_doc["user_id"]
-                
-                # Check if this recipient is a dedicated Mailbox
-                is_mailbox = await db.mailboxes.count_documents({"address": rcpt, "active": True}) > 0
+            try:
+                msg = BytesParser(policy=default).parsebytes(content)
+                subject = msg.get('subject', '(No Subject)')
+            except Exception as e:
+                logger.error(f"Parse error: {e}")
+                return '554 Error parsing message content'
 
-                # Save message to DB
-                msg_id = str(uuid.uuid4())
-                message_doc = {
-                    "id": msg_id,
-                    "user_id": user_id,
-                    "from": mail_from,
-                    "to": rcpt,
-                    "subject": subject,
-                    "body_text": msg.get_body(preferencelist=('plain',)).get_content() if msg.get_body(preferencelist=('plain',)) else "",
-                    "body_html": msg.get_body(preferencelist=('html',)).get_content() if msg.get_body(preferencelist=('html',)) else None,
-                    "headers": dict(msg.items()),
-                    "raw_size": len(content),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "read": False,
-                    "is_mailbox": is_mailbox
-                }
-                
-                await db.inbound_messages.insert_one(message_doc)
-                logger.info(f"Stored message {msg_id} for {rcpt}")
-                
-                # Forward to Stalwart IMAP Server if it's a dedicated mailbox
-                if is_mailbox:
-                    import smtplib
-                    try:
-                        # Attempt to forward to internal Stalwart container on port 2525
-                        with smtplib.SMTP("stalwart", 2525) as smtp:
-                            smtp.send_message(msg, from_addr=mail_from, to_addrs=[rcpt])
-                        logger.info(f"Forwarded {msg_id} to Stalwart IMAP server for {rcpt}")
-                    except Exception as e:
-                        # It's fine if Stalwart isn't running, it just stays in the Webmail DB
-                        logger.warning(f"Stalwart IMAP forward skipped: {e}")
-                
+            for rcpt in rcpts:
+                try:
+                    rcpt_clean = rcpt.lower().strip().strip('<>')
+                    domain_name = rcpt_clean.split('@')[-1]
+                    
+                    domain_doc = await db.domains.find_one({"name": domain_name})
+                    if not domain_doc:
+                        continue
+                    
+                    user_id = domain_doc["user_id"]
+                    is_mailbox = await db.mailboxes.count_documents({"address": rcpt_clean, "active": True}) > 0
+
+                    # Save to DB
+                    msg_id = str(uuid.uuid4())
+                    message_doc = {
+                        "id": msg_id,
+                        "user_id": user_id,
+                        "from": mail_from,
+                        "to": rcpt_clean,
+                        "subject": subject,
+                        "body_text": msg.get_body(preferencelist=('plain',)).get_content() if msg.get_body(preferencelist=('plain',)) else "",
+                        "body_html": msg.get_body(preferencelist=('html',)).get_content() if msg.get_body(preferencelist=('html',)) else None,
+                        "headers": dict(msg.items()),
+                        "raw_size": len(content),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "read": False,
+                        "is_mailbox": is_mailbox
+                    }
+                    
+                    await db.inbound_messages.insert_one(message_doc)
+                    logger.info(f"Stored message {msg_id} for {rcpt_clean}")
+                    
+                    if is_mailbox:
+                        import smtplib
+                        try:
+                            # Forward to internal stalwart container
+                            with smtplib.SMTP("stalwart", 2525, timeout=5) as smtp:
+                                smtp.send_message(msg, from_addr=mail_from, to_addrs=[rcpt_clean])
+                            logger.info(f"Forwarded {msg_id} to Stalwart")
+                        except Exception as e:
+                            logger.info(f"Stalwart skip: {e}")
+                except Exception as rcpt_err:
+                    logger.error(f"Rcpt error {rcpt}: {rcpt_err}")
+
+            logger.info("--- END handle_DATA ---")
             return '250 Message accepted for delivery'
         except Exception as e:
-            logger.error(f"Error handling DATA: {e}")
-            return '451 Internal error during storage'
+            logger.error(f"DATA Error: {e}", exc_info=True)
+            return '451 Internal error'
 
 async def start_inbound():
     global db, client
