@@ -22,34 +22,45 @@ class RelaydHandler:
         try:
             # Sanitize address: strip < > and whitespace
             rcpt = address.lower().strip().strip('<>')
+            if '@' not in rcpt:
+                logger.warning(f"Invalid recipient format: {address}")
+                return '550 Invalid recipient'
+
             domain = rcpt.split('@')[-1]
+            logger.info(f"Checking RCPT: {rcpt} for domain: {domain}")
             
-            logger.info(f"Checking RCPT: {rcpt} (domain: {domain})")
-            
-            # 1. Check if domain is verified in our system
-            domain_doc = await db.domains.find_one({"name": domain, "verified": True})
+            # 1. Check if domain exists (allow both boolean True and case-insensitive string "true")
+            domain_doc = await db.domains.find_one({"name": domain})
             if not domain_doc:
-                logger.warning(f"Rejected RCPT {rcpt}: Domain '{domain}' not found or not verified")
+                logger.warning(f"Rejected RCPT {rcpt}: Domain '{domain}' not found in database")
                 return '550 Relay access denied'
+            
+            is_verified = domain_doc.get("verified")
+            if is_verified not in [True, "true", "True"]:
+                logger.warning(f"Rejected RCPT {rcpt}: Domain '{domain}' exists but is not verified (status: {is_verified})")
+                return '550 Domain not verified'
             
             # 2. Check if address exists as mailbox or alias
             mailbox = await db.mailboxes.find_one({"address": rcpt, "active": True})
             if mailbox:
+                logger.info(f"Accepted RCPT {rcpt}: Found active mailbox")
                 return '250 OK'
                 
             alias = await db.aliases.find_one({"address": rcpt, "enabled": True})
             if alias:
+                logger.info(f"Accepted RCPT {rcpt}: Found active alias")
                 return '250 OK'
                 
             # 3. Check for Catch-all alias
             catchall = await db.aliases.find_one({"address": f"*@{domain}", "enabled": True})
             if catchall:
+                logger.info(f"Accepted RCPT {rcpt}: Found catch-all")
                 return '250 OK'
 
-            logger.info(f"Rejected RCPT {rcpt}: No such user")
+            logger.info(f"Rejected RCPT {rcpt}: No such mailbox or alias found for this user")
             return '550 No such user'
         except Exception as e:
-            logger.error(f"Error in RCPT check: {e}")
+            logger.error(f"Error in RCPT check for {address}: {e}", exc_info=True)
             return '451 Internal error'
 
     async def handle_DATA(self, server, session, envelope):
