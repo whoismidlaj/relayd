@@ -118,7 +118,7 @@ services:
         condition: service_healthy
     networks: [relayd]
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket, sys; s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 143)); s.close(); sys.exit(0)\" || exit 1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 143 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

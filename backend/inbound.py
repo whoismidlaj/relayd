@@ -192,6 +192,17 @@ class RelaydHandler:
             logger.error(f"DATA Error: {e}", exc_info=True)
             return '451 Internal error'
 
+# ---- Background task tracker & runner for SMTP Submission ----
+background_tasks = set()
+
+async def run_submission_in_background(payload, mock_user, rcpt_clean):
+    try:
+        from routers.relay_routes import send_test_email
+        res = await send_test_email(payload, user=mock_user)
+        logger.info(f"Submission to {rcpt_clean} successfully processed in background: {res}")
+    except Exception as e:
+        logger.error(f"Background submission failed for {rcpt_clean}: {e}", exc_info=True)
+
 # ---- Handler for Outbound Port 587 ----
 class SubmissionHandler:
     async def handle_MAIL(self, server, session, envelope, address, mail_options):
@@ -249,7 +260,7 @@ class SubmissionHandler:
                 return '554 Error parsing message'
                 
             # Import routes logic
-            from routers.relay_routes import TestEmailIn, send_test_email
+            from routers.relay_routes import TestEmailIn
             
             logger.info(f"Processing Submission from {auth_user} to {envelope.rcpt_tos}")
             
@@ -265,9 +276,11 @@ class SubmissionHandler:
                 )
                 mock_user = {"id": user_id, "email": auth_user, "role": "user"}
                 
-                # Hand it off to the smart routing and failover engine!
-                res = await send_test_email(payload, user=mock_user)
-                logger.info(f"Submission successfully dispatched to {rcpt_clean}: {res}")
+                # Hand it off to the smart routing and failover engine in the background
+                # to return a 250 response to the client immediately and prevent timeouts.
+                task = asyncio.create_task(run_submission_in_background(payload, mock_user, rcpt_clean))
+                background_tasks.add(task)
+                task.add_done_callback(background_tasks.discard)
                 
             return '250 Message accepted for delivery'
         except Exception as e:
