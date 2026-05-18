@@ -11,8 +11,10 @@ import { api, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Send, Loader2 } from "lucide-react";
 import TagsInput from "@/components/TagsInput";
+import { useAuth } from "@/lib/auth";
 
 export default function ComposeDialog({ open, onOpenChange, defaultFrom = "" }) {
+  const { user } = useAuth();
   const [mailboxes, setMailboxes] = useState([]);
   const [globalTags, setGlobalTags] = useState([]);
   const [sending, setSending] = useState(false);
@@ -26,13 +28,14 @@ export default function ComposeDialog({ open, onOpenChange, defaultFrom = "" }) 
 
   useEffect(() => {
     if (open) {
-      loadMailboxes();
-      loadTags();
-      if (defaultFrom) {
-        setForm(prev => ({ ...prev, from_email: defaultFrom }));
+      if (user?.role === "mailbox") {
+        setForm(prev => ({ ...prev, from_email: user.email }));
+      } else {
+        loadMailboxes();
       }
+      loadTags();
     }
-  }, [open, defaultFrom]);
+  }, [open, defaultFrom, user]);
 
   const loadTags = async () => {
     try {
@@ -82,29 +85,38 @@ export default function ComposeDialog({ open, onOpenChange, defaultFrom = "" }) 
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="from">From</Label>
-            <Select 
-              value={form.from_email} 
-              onValueChange={(v) => setForm({ ...form, from_email: v })}
-            >
-              <SelectTrigger id="from">
-                <SelectValue placeholder="Select sender" />
-              </SelectTrigger>
-              <SelectContent>
-                {mailboxes.map((m) => (
-                  <SelectItem key={m.id} value={m.address}>
-                    {m.display_name} &lt;{m.address}&gt;
-                  </SelectItem>
-                ))}
-                {mailboxes.length === 0 && (
-                  <SelectItem value={form.from_email || "no-mailbox"} disabled>
-                    {form.from_email || "No mailboxes found"}
-                  </SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
+          {user?.role === "mailbox" ? (
+            <div className="space-y-2">
+              <Label>From</Label>
+              <div className="h-10 px-3 py-2 border border-input bg-muted rounded-md text-sm font-medium text-muted-foreground flex items-center select-none">
+                {user.email}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="from">From</Label>
+              <Select 
+                value={form.from_email} 
+                onValueChange={(v) => setForm({ ...form, from_email: v })}
+              >
+                <SelectTrigger id="from">
+                  <SelectValue placeholder="Select sender" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mailboxes.map((m) => (
+                    <SelectItem key={m.id} value={m.address}>
+                      {m.display_name} &lt;{m.address}&gt;
+                    </SelectItem>
+                  ))}
+                  {mailboxes.length === 0 && (
+                    <SelectItem value={form.from_email || "no-mailbox"} disabled>
+                      {form.from_email || "No mailboxes found"}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           
           <div className="space-y-2">
             <Label htmlFor="to">To</Label>

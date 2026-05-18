@@ -365,7 +365,8 @@ async def send_test_email(payload: TestEmailIn, user: dict = Depends(get_current
 @router.get("/logs")
 async def list_logs(user: dict = Depends(get_current_user), limit: int = 100):
     from server import db
-    items = await db.delivery_logs.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    query = {"from_email": user["email"]} if user.get("role") == "mailbox" else {"user_id": user["id"]}
+    items = await db.delivery_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     return items
 
 

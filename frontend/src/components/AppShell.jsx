@@ -135,24 +135,27 @@ export default function AppShell({ children, fullWidth = false }) {
                   </div>
                 )}
                 <div className="space-y-0.5">
-                  {filteredItems.map((n) => (
-                    <NavLink
-                      key={n.to}
-                      to={n.to}
-                      data-testid={n.testId}
-                      onClick={closeMenu}
-                      className={({ isActive }) =>
-                        `flex items-center gap-2.5 px-2 h-8 rounded-sm text-sm transition-colors ${
-                          isActive
-                            ? "bg-secondary text-foreground font-medium"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        }`
-                      }
-                    >
-                      <n.icon className="h-4 w-4" />
-                      <span>{n.label}</span>
-                    </NavLink>
-                  ))}
+                  {filteredItems.map((n) => {
+                    const label = (user?.role === "mailbox" && n.to === "/inbound") ? "Webmail" : n.label;
+                    return (
+                      <NavLink
+                        key={n.to}
+                        to={n.to}
+                        data-testid={n.testId}
+                        onClick={closeMenu}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2.5 px-2 h-8 rounded-sm text-sm transition-colors ${
+                            isActive
+                              ? "bg-secondary text-foreground font-medium"
+                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                          }`
+                        }
+                      >
+                        <n.icon className="h-4 w-4" />
+                        <span>{label}</span>
+                      </NavLink>
+                    );
+                  })}
                 </div>
               </div>
             );
