@@ -31,12 +31,63 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("relayd")
 
 # Global placeholders
+_global_db = None
 db = None
 client = None
 
+import sys
+from types import ModuleType
+
+class RelaydModule(ModuleType):
+    @property
+    def db(self):
+        import asyncio
+        import os
+        try:
+            loop = asyncio.get_running_loop()
+            if hasattr(loop, "_relayd_db"):
+                return loop._relayd_db
+            
+            # Lazy initialize for separate loops (e.g. aiosmtpd threads)
+            mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+            db_name = os.environ.get("DB_NAME", "relayd_db")
+            use_tls = any(x in mongo_url.lower() for x in ["mongodb+srv://", "tls=true", "ssl=true"])
+            client_kwargs = {
+                "connectTimeoutMS": 30000,
+                "serverSelectionTimeoutMS": 30000,
+                "heartbeatFrequencyMS": 10000,
+                "maxIdleTimeMS": 60000,
+                "retryWrites": True,
+            }
+            if use_tls:
+                import certifi
+                client_kwargs.update({
+                    "tlsCAFile": certifi.where(),
+                    "directConnection": False,
+                })
+                if not any(x in mongo_url.lower() for x in ["mongodb+srv://", "ssl=", "tls="]):
+                    client_kwargs["tls"] = True
+            
+            from motor.motor_asyncio import AsyncIOMotorClient
+            loop._relayd_client = AsyncIOMotorClient(mongo_url, **client_kwargs)
+            loop._relayd_db = loop._relayd_client[db_name]
+            return loop._relayd_db
+        except RuntimeError:
+            pass
+        except Exception as e:
+            logging.getLogger("relayd").warning(f"Failed to lazy init loop db: {e}")
+        return _global_db
+
+    @db.setter
+    def db(self, val):
+        global _global_db
+        _global_db = val
+
+sys.modules[__name__].__class__ = RelaydModule
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, client
+    global _global_db, client
     
     # Initialize Mongo
     mongo_url = os.environ["MONGO_URL"].strip()
@@ -64,7 +115,14 @@ async def lifespan(app: FastAPI):
             client_kwargs["tls"] = True
 
     client = AsyncIOMotorClient(mongo_url, **client_kwargs)
-    db = client[db_name]
+    _global_db = client[db_name]
+    
+    # Store on main loop
+    try:
+        loop = asyncio.get_running_loop()
+        loop._relayd_db = _global_db
+    except Exception:
+        pass
 
     try:
         retries = 3

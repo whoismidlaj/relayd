@@ -17,8 +17,23 @@ from auth import verify_password
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("relayd-inbound")
 
-db = None
 client = None
+db = None
+
+import sys
+from types import ModuleType
+
+class InboundModule(ModuleType):
+    @property
+    def db(self):
+        import server
+        return server.db
+
+    @db.setter
+    def db(self, val):
+        pass
+
+sys.modules[__name__].__class__ = InboundModule
 
 # ---- Custom Controller for STARTTLS support on port 587 ----
 class STARTTLSController(Controller):

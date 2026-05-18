@@ -1,14 +1,14 @@
 import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useSearchParams } from "react-router-dom";
 import {
   LayoutDashboard, Globe, Inbox, ArrowRightLeft, Send,
-  Activity, ScrollText, Settings, LogOut, Mail, KeyRound, BookOpen, Menu, X
+  Activity, ScrollText, Settings, LogOut, Mail, KeyRound, BookOpen, Menu, X, Plus, Trash2, AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import ComposeDialog from "@/components/ComposeDialog";
-import { Plus } from "lucide-react";
+import { api } from "@/lib/api";
 
 const NAV_GROUPS = [
   {
@@ -53,8 +53,60 @@ const NAV_GROUPS = [
 export default function AppShell({ children, fullWidth = false }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [composeOpen, setComposeOpen] = React.useState(false);
+
+  // Folder Counts (for Mailbox role)
+  const [inboxCount, setInboxCount] = React.useState(0);
+  const [spamCount, setSpamCount] = React.useState(0);
+  const [trashCount, setTrashCount] = React.useState(0);
+
+  const currentFolder = searchParams.get("folder") || "inbox";
+
+  const fetchCounts = async () => {
+    if (user?.role !== "mailbox") return;
+    try {
+      const { data } = await api.get("/inbound/messages");
+      
+      let trash = [];
+      let spam = [];
+      try { trash = JSON.parse(localStorage.getItem(`relayd_trash_${user.email}`) || "[]"); } catch {}
+      try { spam = JSON.parse(localStorage.getItem(`relayd_spam_${user.email}`) || "[]"); } catch {}
+
+      const inbox = data.filter(m => !trash.includes(m.id) && !spam.includes(m.id) && !m.read).length;
+      const sp = data.filter(m => spam.includes(m.id) && !trash.includes(m.id)).length;
+      const tr = trash.length;
+
+      setInboxCount(inbox);
+      setSpamCount(sp);
+      setTrashCount(tr);
+    } catch (e) {
+      console.error("Failed to fetch sidebar counts", e);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 15000);
+    
+    // Listen for mail update events from InboundPage
+    window.addEventListener("relayd-mail-updated", fetchCounts);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("relayd-mail-updated", fetchCounts);
+    };
+  }, [user]);
+
+  const selectFolder = (folder) => {
+    closeMenu();
+    if (window.location.pathname !== "/inbound") {
+      navigate(`/inbound?folder=${folder}`);
+    } else {
+      setSearchParams({ folder });
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -101,7 +153,9 @@ export default function AppShell({ children, fullWidth = false }) {
             </div>
             <div className="leading-tight">
               <div className="text-sm font-semibold tracking-tight">Relayd</div>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hidden md:block">orchestration</div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground hidden md:block">
+                {user?.role === "mailbox" ? "Webmail Client" : "orchestration"}
+              </div>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="md:hidden h-8 w-8" onClick={closeMenu}>
@@ -112,32 +166,102 @@ export default function AppShell({ children, fullWidth = false }) {
         {user?.role === "mailbox" && (
           <div className="px-4 py-4 border-b border-border">
             <Button 
-              className="w-full justify-start gap-2 shadow-sm" 
+              className="w-full justify-start gap-2 shadow-sm font-semibold hover:scale-[1.01] transition-transform" 
               onClick={() => setComposeOpen(true)}
               data-testid="sidebar-compose-button"
             >
               <Plus className="h-4 w-4" />
-              <span className="font-semibold">Compose</span>
+              <span>Compose</span>
             </Button>
           </div>
         )}
 
-        <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
-          {NAV_GROUPS.map((group, i) => {
-            const filteredItems = group.items.filter(n => user?.role === "mailbox" ? n.to === "/inbound" : true);
-            if (filteredItems.length === 0) return null;
-            
-            return (
-              <div key={i}>
-                {user?.role !== "mailbox" && (
+        {user?.role === "mailbox" ? (
+          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+            <button
+              onClick={() => selectFolder("inbox")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-semibold transition-colors ${
+                currentFolder === "inbox" 
+                  ? "bg-primary/10 text-primary font-bold" 
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Inbox className="h-4 w-4" />
+                <span>Inbox</span>
+              </div>
+              {inboxCount > 0 && (
+                <span className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
+                  {inboxCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => selectFolder("sent")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-semibold transition-colors ${
+                currentFolder === "sent" 
+                  ? "bg-primary/10 text-primary font-bold" 
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Send className="h-4 w-4" />
+                <span>Sent</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => selectFolder("spam")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-semibold transition-colors ${
+                currentFolder === "spam" 
+                  ? "bg-primary/10 text-primary font-bold" 
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Spam</span>
+              </div>
+              {spamCount > 0 && (
+                <span className="bg-muted-foreground/30 text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
+                  {spamCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => selectFolder("trash")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-semibold transition-colors ${
+                currentFolder === "trash" 
+                  ? "bg-primary/10 text-primary font-bold" 
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Trash2 className="h-4 w-4" />
+                <span>Trash</span>
+              </div>
+              {trashCount > 0 && (
+                <span className="bg-muted-foreground/30 text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
+                  {trashCount}
+                </span>
+              )}
+            </button>
+          </nav>
+        ) : (
+          <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
+            {NAV_GROUPS.map((group, i) => {
+              const filteredItems = group.items;
+              if (filteredItems.length === 0) return null;
+              
+              return (
+                <div key={i}>
                   <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {group.label}
                   </div>
-                )}
-                <div className="space-y-0.5">
-                  {filteredItems.map((n) => {
-                    const label = (user?.role === "mailbox" && n.to === "/inbound") ? "Webmail" : n.label;
-                    return (
+                  <div className="space-y-0.5">
+                    {filteredItems.map((n) => (
                       <NavLink
                         key={n.to}
                         to={n.to}
@@ -152,26 +276,26 @@ export default function AppShell({ children, fullWidth = false }) {
                         }
                       >
                         <n.icon className="h-4 w-4" />
-                        <span>{label}</span>
+                        <span>{n.label}</span>
                       </NavLink>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </nav>
+              );
+            })}
+          </nav>
+        )}
 
         <div className="border-t border-border p-3 flex items-center gap-2">
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium truncate" data-testid="sidebar-user-email">{user?.email}</div>
+            <div className="text-xs font-semibold truncate" data-testid="sidebar-user-email">{user?.email}</div>
             <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{user?.role}</div>
           </div>
           <ThemeToggle />
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
             onClick={handleLogout}
             data-testid="logout-button"
             title="Logout"

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import AppShell, { PageHeader } from "@/components/AppShell";
 import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -21,6 +22,7 @@ import { toast } from "sonner";
 
 export default function InboundPage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [messages, setMessages] = useState([]);
   const [sentMessages, setSentMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ export default function InboundPage() {
     } catch { return []; }
   });
 
-  const [currentFolder, setCurrentFolder] = useState("inbox"); // inbox, sent, spam, trash
+  const currentFolder = searchParams.get("folder") || "inbox"; // inbox, sent, spam, trash
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [adminOpenId, setAdminOpenId] = useState(null);
@@ -55,6 +57,13 @@ export default function InboundPage() {
       localStorage.setItem(`relayd_spam_${user.email}`, JSON.stringify(spamIds));
     }
   }, [spamIds, user]);
+
+  // Broadcast folder updates to sidebar unread counts
+  useEffect(() => {
+    if (user?.role === "mailbox") {
+      window.dispatchEvent(new Event("relayd-mail-updated"));
+    }
+  }, [trashIds, spamIds, messages, user]);
 
   const refreshData = async () => {
     if (!user) return;
@@ -79,6 +88,11 @@ export default function InboundPage() {
   useEffect(() => {
     refreshData();
   }, [user]);
+
+  // Reset selected message when folder changes
+  useEffect(() => {
+    setSelectedMessage(null);
+  }, [currentFolder]);
 
   // Folder Actions
   const moveToTrash = (id) => {
@@ -124,7 +138,7 @@ export default function InboundPage() {
         await api.delete(`/inbound/messages/${id}`);
         setMessages(prev => prev.filter(m => m.id !== id));
       } else {
-        // Sent messages are immutable logs but we can filter them locally
+        // Sent messages are logs
         setTrashIds(prev => prev.filter(x => x !== id));
       }
       setTrashIds(prev => prev.filter(x => x !== id));
@@ -192,138 +206,50 @@ export default function InboundPage() {
 
   const filteredEmails = getFilteredEmails();
 
-  // Counts
-  const inboxCount = messages.filter(m => !trashIds.includes(m.id) && !spamIds.includes(m.id) && !m.read).length;
-  const spamCount = messages.filter(m => spamIds.includes(m.id) && !trashIds.includes(m.id)).length;
-  const trashCount = trashIds.length;
-
   // -------------------------------------------------------------
-  // RENDER METHOD A: MAILBOX USER (PREMIUM THREE-PANE WEBMAIL)
+  // RENDER METHOD A: MAILBOX USER (PREMIUM TWO-PANE WEBMAIL CLIENT)
   // -------------------------------------------------------------
   if (user?.role === "mailbox") {
     return (
       <AppShell fullWidth={true}>
         <div className="flex h-[calc(100vh-80px)] -m-4 md:-m-6 overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-          {/* 1. Webmail Folder Navigation Sidebar */}
-          <aside className="w-56 border-r border-border bg-muted/20 flex flex-col justify-between shrink-0 p-4">
-            <div className="space-y-6">
-              <Button 
-                onClick={() => setComposeOpen(true)} 
-                className="w-full gap-2 shadow-sm font-semibold hover:scale-[1.02] transition-transform"
-              >
-                <Plus className="h-4 w-4" /> Compose
-              </Button>
-
-              <nav className="space-y-1">
-                <button
-                  onClick={() => { setCurrentFolder("inbox"); setSelectedMessage(null); }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    currentFolder === "inbox" 
-                      ? "bg-primary/10 text-primary" 
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Inbox className="h-4 w-4" />
-                    <span>Inbox</span>
-                  </div>
-                  {inboxCount > 0 && (
-                    <span className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
-                      {inboxCount}
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => { setCurrentFolder("sent"); setSelectedMessage(null); }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    currentFolder === "sent" 
-                      ? "bg-primary/10 text-primary" 
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Send className="h-4 w-4" />
-                    <span>Sent</span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => { setCurrentFolder("spam"); setSelectedMessage(null); }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    currentFolder === "spam" 
-                      ? "bg-primary/10 text-primary" 
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <AlertTriangle className="h-4 w-4" />
-                    <span>Spam</span>
-                  </div>
-                  {spamCount > 0 && (
-                    <span className="bg-muted-foreground/30 text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
-                      {spamCount}
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => { setCurrentFolder("trash"); setSelectedMessage(null); }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    currentFolder === "trash" 
-                      ? "bg-primary/10 text-primary" 
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Trash2 className="h-4 w-4" />
-                    <span>Trash</span>
-                  </div>
-                  {trashCount > 0 && (
-                    <span className="bg-muted-foreground/30 text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
-                      {trashCount}
-                    </span>
-                  )}
-                </button>
-              </nav>
-            </div>
-
-            <div className="border-t border-border pt-4">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={refreshData} 
-                disabled={loading}
-                className="w-full gap-2 text-xs"
-              >
-                <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-                Sync Mailbox
-              </Button>
-            </div>
-          </aside>
-
-          {/* 2. Middle Pane: Email List View */}
+          
+          {/* 1. Left Pane: Email List View */}
           <section className="w-80 border-r border-border flex flex-col bg-background shrink-0">
             <div className="p-3 border-b border-border space-y-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search emails..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 h-9 text-xs"
-                />
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search emails..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 h-9 text-xs"
+                  />
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  onClick={refreshData} 
+                  disabled={loading}
+                  title="Sync Mailbox"
+                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                </Button>
               </div>
-              <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">
-                {currentFolder} • {filteredEmails.length} messages
+              <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.12em] px-1 flex items-center justify-between">
+                <span>{currentFolder} folder</span>
+                <span>{filteredEmails.length} messages</span>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-border/60">
               {filteredEmails.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
-                  <Mail className="h-8 w-8 mb-2 stroke-1 opacity-40" />
-                  <p className="text-xs">No emails in this folder</p>
+                  <Mail className="h-8 w-8 mb-2 stroke-1 opacity-40 animate-pulse" />
+                  <p className="text-xs font-semibold">No emails here</p>
+                  <p className="text-[10px] text-muted-foreground/80 mt-0.5">Your folder is completely clean!</p>
                 </div>
               )}
 
@@ -344,7 +270,7 @@ export default function InboundPage() {
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className={`text-xs font-semibold truncate max-w-[140px] ${
+                      <span className={`text-xs font-bold truncate max-w-[140px] ${
                         !isSent && !msg.read ? "text-foreground font-black" : "text-muted-foreground"
                       }`}>
                         {senderLabel}
@@ -380,7 +306,7 @@ export default function InboundPage() {
             </div>
           </section>
 
-          {/* 3. Right Pane: Reading Pane */}
+          {/* 2. Right Pane: Reading Pane */}
           <main className="flex-1 bg-muted/5 flex flex-col overflow-hidden">
             {selectedMessage ? (
               <div className="flex-1 flex flex-col overflow-hidden">
@@ -442,10 +368,6 @@ export default function InboundPage() {
                       </>
                     )}
                   </div>
-
-                  <div className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/65 px-2 py-1 rounded">
-                    {currentFolder} folder
-                  </div>
                 </div>
 
                 {/* Main Email Content */}
@@ -494,11 +416,11 @@ export default function InboundPage() {
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground p-8">
                 <div className="h-16 w-16 rounded-full bg-muted/40 grid place-items-center mb-4 border border-dashed border-border">
-                  <Mail className="h-8 w-8 stroke-1 opacity-60" />
+                  <Mail className="h-8 w-8 stroke-1 opacity-60 text-primary/60" />
                 </div>
                 <h3 className="text-sm font-semibold">No Email Selected</h3>
-                <p className="text-xs max-w-xs mt-1 text-muted-foreground/80 leading-relaxed">
-                  Choose a folder from the sidebar and select a message to begin reading.
+                <p className="text-xs max-w-xs mt-1 text-muted-foreground/85 leading-relaxed">
+                  Choose a folder from your sidebar and select an email to view its content.
                 </p>
               </div>
             )}
