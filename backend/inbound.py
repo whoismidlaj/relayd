@@ -2,11 +2,16 @@ import asyncio
 import os
 import logging
 import uuid
+import ssl
+import pymongo
 from datetime import datetime, timezone
 from aiosmtpd.controller import Controller
+from aiosmtpd.smtp import SMTP, AuthResult, LoginPassword
 from motor.motor_asyncio import AsyncIOMotorClient
 from email.parser import BytesParser
 from email.policy import default
+
+from auth import verify_password
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -15,6 +20,55 @@ logger = logging.getLogger("relayd-inbound")
 db = None
 client = None
 
+# ---- Custom Controller for STARTTLS support on port 587 ----
+class STARTTLSController(Controller):
+    def __init__(self, handler, hostname='0.0.0.0', port=587, tls_context=None, authenticator=None, auth_required=True):
+        self.tls_context = tls_context
+        self.authenticator = authenticator
+        self.auth_required = auth_required
+        super().__init__(handler, hostname=hostname, port=port)
+
+    def factory(self):
+        return SMTP(
+            self.handler, 
+            tls_context=self.tls_context, 
+            require_starttls=False,
+            authenticator=self.authenticator,
+            auth_required=self.auth_required,
+            auth_require_tls=False  # Allow auth over STARTTLS or plain for local testing
+        )
+
+# ---- Authenticator for Outgoing Submission ----
+class MailboxAuthenticator:
+    def __init__(self, mongo_url, db_name):
+        self.client = pymongo.MongoClient(mongo_url)
+        self.db = self.client[db_name]
+
+    def __call__(self, server, session, envelope, mechanism, auth_data):
+        if not isinstance(auth_data, LoginPassword):
+            return AuthResult(success=False, handled=False)
+            
+        username = auth_data.login.decode('utf-8', errors='ignore').lower().strip()
+        password = auth_data.password.decode('utf-8', errors='ignore')
+        
+        try:
+            mailbox = self.db.mailboxes.find_one({"address": username, "active": True})
+            if not mailbox:
+                logger.warning(f"Submission Auth Failed: Mailbox '{username}' not found or inactive")
+                return AuthResult(success=False, handled=False)
+                
+            if verify_password(password, mailbox.get("password_hash", "")):
+                session.authenticated_user = username
+                logger.info(f"Submission Auth Succeeded: {username}")
+                return AuthResult(success=True)
+                
+            logger.warning(f"Submission Auth Failed: Password mismatch for '{username}'")
+            return AuthResult(success=False, handled=False)
+        except Exception as e:
+            logger.error(f"Submission Auth Error: {e}")
+            return AuthResult(success=False, handled=False)
+
+# ---- Handler for Inbound Port 25 ----
 class RelaydHandler:
     async def handle_MAIL(self, server, session, envelope, address, mail_options):
         """Handle the MAIL FROM command."""
@@ -138,6 +192,88 @@ class RelaydHandler:
             logger.error(f"DATA Error: {e}", exc_info=True)
             return '451 Internal error'
 
+# ---- Handler for Outbound Port 587 ----
+class SubmissionHandler:
+    async def handle_MAIL(self, server, session, envelope, address, mail_options):
+        if not hasattr(session, 'authenticated_user'):
+            return '530 Authentication required'
+            
+        mail_from = address.lower().strip().strip('<>')
+        auth_user = session.authenticated_user.lower().strip()
+        
+        if mail_from != auth_user:
+            logger.warning(f"Submission Rejected: authenticated as {auth_user} but tried to send as {mail_from}")
+            return '553 From address must match authenticated user'
+            
+        envelope.mail_from = address
+        return '250 OK'
+
+    async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
+        if not hasattr(session, 'authenticated_user'):
+            return '530 Authentication required'
+            
+        envelope.rcpt_tos.append(address)
+        return '250 OK'
+
+    async def handle_DATA(self, server, session, envelope):
+        global db
+        try:
+            if not hasattr(session, 'authenticated_user'):
+                return '530 Authentication required'
+                
+            auth_user = session.authenticated_user.lower().strip()
+            mailbox = await db.mailboxes.find_one({"address": auth_user})
+            if not mailbox:
+                return '554 Sender mailbox not found'
+                
+            user_id = mailbox["user_id"]
+            content = envelope.content
+            
+            # Parse message
+            try:
+                msg = BytesParser(policy=default).parsebytes(content)
+                subject = msg.get('subject', '(No Subject)')
+                
+                body_text = ""
+                body_html = None
+                
+                plain_part = msg.get_body(preferencelist=('plain',))
+                if plain_part:
+                    body_text = plain_part.get_content()
+                
+                html_part = msg.get_body(preferencelist=('html',))
+                if html_part:
+                    body_html = html_part.get_content()
+            except Exception as parse_err:
+                logger.error(f"Submission Parse Error: {parse_err}")
+                return '554 Error parsing message'
+                
+            # Import routes logic
+            from routers.relay_routes import TestEmailIn, send_test_email
+            
+            logger.info(f"Processing Submission from {auth_user} to {envelope.rcpt_tos}")
+            
+            for rcpt in envelope.rcpt_tos:
+                rcpt_clean = rcpt.lower().strip().strip('<>')
+                
+                payload = TestEmailIn(
+                    from_email=auth_user,
+                    to=rcpt_clean,
+                    subject=subject,
+                    body=body_text or body_html or " ",
+                    tags=["submission"]
+                )
+                mock_user = {"id": user_id, "email": auth_user, "role": "user"}
+                
+                # Hand it off to the smart routing and failover engine!
+                res = await send_test_email(payload, user=mock_user)
+                logger.info(f"Submission successfully dispatched to {rcpt_clean}: {res}")
+                
+            return '250 Message accepted for delivery'
+        except Exception as e:
+            logger.error(f"Submission DATA Error: {e}", exc_info=True)
+            return '451 Internal error'
+
 async def start_inbound():
     global db, client
     
@@ -166,13 +302,58 @@ async def start_inbound():
     client = AsyncIOMotorClient(mongo_url, **client_kwargs)
     db = client[db_name]
     
+    # Expose db reference to server module so imported routes work in this process context
+    import server
+    server.db = db
+    
     handler = RelaydHandler()
     controller = Controller(handler, hostname='0.0.0.0', port=25)
     
     logger.info("Starting Inbound SMTP listener on port 25...")
     controller.start()
     
-    # Keep running
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        controller.stop()
+
+async def start_submission():
+    global db
+    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+    db_name = os.environ.get("DB_NAME", "relayd_db")
+    
+    # Generate self-signed cert if missing
+    ssl_dir = "/app"
+    cert_path = f"{ssl_dir}/cert.pem"
+    key_path = f"{ssl_dir}/key.pem"
+    
+    if not os.path.exists(cert_path) or not os.path.exists(key_path):
+        logger.info("Generating self-signed SSL certificate for SMTP Submission...")
+        os.system(f'openssl req -new -x509 -days 3650 -nodes -out {cert_path} -keyout {key_path} -subj "/CN=relayd-smtp"')
+        
+    # Build SSL Context for STARTTLS
+    try:
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.load_cert_chain(cert_path, key_path)
+    except Exception as ssl_err:
+        logger.error(f"Failed to create SSL context for STARTTLS: {ssl_err}")
+        context = None
+
+    authenticator = MailboxAuthenticator(mongo_url, db_name)
+    handler = SubmissionHandler()
+    
+    controller = STARTTLSController(
+        handler, 
+        hostname='0.0.0.0', 
+        port=587, 
+        tls_context=context, 
+        authenticator=authenticator
+    )
+    
+    logger.info("Starting Outgoing SMTP Submission listener on port 587...")
+    controller.start()
+    
     try:
         while True:
             await asyncio.sleep(3600)
@@ -180,4 +361,18 @@ async def start_inbound():
         controller.stop()
 
 if __name__ == "__main__":
-    asyncio.run(start_inbound())
+    # Ensure Windows asyncio loop policy
+    import sys
+    if sys.platform == 'win32':
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        except Exception:
+            pass
+
+    async def main():
+        await asyncio.gather(
+            start_inbound(),
+            start_submission()
+        )
+        
+    asyncio.run(main())

@@ -83,6 +83,7 @@ services:
     restart: unless-stopped
     ports:
       - "25:25"
+      - "587:587"
     environment:
       MONGO_URL: "mongodb://mongo:27017"
       DB_NAME: "relayd_db"

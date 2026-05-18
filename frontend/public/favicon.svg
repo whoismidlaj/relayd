@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#4f46e5" />
+    </linearGradient>
+  </defs>
+  <!-- Outer rounded container -->
+  <rect x="2" y="2" width="28" height="28" rx="8" fill="url(#grad)" />
+  <!-- Minimalist dark inner card -->
+  <rect x="4" y="4" width="24" height="24" rx="6" fill="#0b0f19" />
+  <!-- Envelope symbol -->
+  <path d="M10 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1 -1 1H10a1 1 0 0 1 -1 -1v-8a1 1 0 0 1 1 -1z" stroke="#818cf8" stroke-width="1.5" stroke-linejoin="round" />
+  <path d="M9.5 12l6.5 4.5 6.5-4.5" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Dynamic relay arrow pointing forward -->
+  <path d="M14 18h4m0 0l-2-2m2 2l-2 2" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
