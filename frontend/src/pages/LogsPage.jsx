@@ -53,7 +53,6 @@ export default function LogsPage() {
             <TableRow>
               <TableHead>Time</TableHead>
               <TableHead>To</TableHead>
-              <TableHead className="hidden md:table-cell">Subject</TableHead>
               <TableHead className="hidden lg:table-cell">Provider</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -71,7 +70,6 @@ export default function LogsPage() {
                   {new Date(l.created_at).toLocaleString()}
                 </TableCell>
                 <TableCell className="font-mono text-xs">{l.to}</TableCell>
-                <TableCell className="max-w-[260px] truncate hidden md:table-cell">{l.subject}</TableCell>
                 <TableCell className="text-xs hidden lg:table-cell">{l.provider_name || "—"}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className={l.status === "sent" ? "text-emerald-500 border-emerald-500/40" : "text-destructive border-destructive/40"}>
@@ -85,8 +83,12 @@ export default function LogsPage() {
                     </DialogTrigger>
                     <DialogContent className="max-h-[80vh] overflow-y-auto">
                       <DialogHeader><DialogTitle>Delivery details</DialogTitle></DialogHeader>
-                      <pre className="dns-code bg-muted/40 border border-border rounded-sm p-3 text-xs">
-{JSON.stringify(l, null, 2)}
+                      <pre className="dns-code bg-muted/40 border border-border rounded-sm p-3 text-xs whitespace-pre-wrap">
+{JSON.stringify(
+  Object.fromEntries(Object.entries(l).filter(([k]) => !['subject', 'body_text', 'body_html', 'headers'].includes(k))), 
+  null, 
+  2
+)}
                       </pre>
                     </DialogContent>
                   </Dialog>

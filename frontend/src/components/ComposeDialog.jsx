@@ -10,9 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Send, Loader2 } from "lucide-react";
+import TagsInput from "@/components/TagsInput";
 
 export default function ComposeDialog({ open, onOpenChange, defaultFrom = "" }) {
   const [mailboxes, setMailboxes] = useState([]);
+  const [globalTags, setGlobalTags] = useState([]);
   const [sending, setSending] = useState(false);
   const [form, setForm] = useState({
     from_email: defaultFrom,
@@ -25,11 +27,19 @@ export default function ComposeDialog({ open, onOpenChange, defaultFrom = "" }) 
   useEffect(() => {
     if (open) {
       loadMailboxes();
+      loadTags();
       if (defaultFrom) {
         setForm(prev => ({ ...prev, from_email: defaultFrom }));
       }
     }
   }, [open, defaultFrom]);
+
+  const loadTags = async () => {
+    try {
+      const { data } = await api.get("/tags");
+      setGlobalTags(data);
+    } catch (e) { console.error("Failed to load tags", e); }
+  };
 
   const loadMailboxes = async () => {
     try {
@@ -132,12 +142,12 @@ export default function ComposeDialog({ open, onOpenChange, defaultFrom = "" }) 
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tags">Tags (comma separated)</Label>
-            <Input 
-              id="tags" 
-              placeholder="transactional, welcome" 
+            <Label htmlFor="tags">Tags</Label>
+            <TagsInput 
               value={form.tags}
-              onChange={(e) => setForm({ ...form, tags: e.target.value })}
+              onChange={(v) => setForm({ ...form, tags: v })}
+              placeholder="Add tag..."
+              suggestions={globalTags}
             />
           </div>
 

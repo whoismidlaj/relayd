@@ -117,14 +117,8 @@ export default function AuthPage({ mode = "login" }) {
             </Button>
 
             <div className="text-sm text-muted-foreground text-center">
-              {isLogin ? (
-                <>Don't have an account?{" "}
-                  <Link to="/register" className="text-foreground underline underline-offset-4" data-testid="link-to-register">Register</Link>
-                </>
-              ) : (
-                <>Already have an account?{" "}
-                  <Link to="/login" className="text-foreground underline underline-offset-4" data-testid="link-to-login">Sign in</Link>
-                </>
+              {isLogin && (
+                <>Signups are currently disabled by the administrator.</>
               )}
             </div>
           </form>

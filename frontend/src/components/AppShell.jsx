@@ -12,31 +12,36 @@ import { Plus } from "lucide-react";
 
 const NAV_GROUPS = [
   {
-    label: "Orchestration",
+    label: "Overview",
     items: [
-      { to: "/dashboard", label: "Overview", icon: LayoutDashboard, testId: "nav-overview" },
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testId: "nav-overview" },
+      { to: "/deliverability", label: "Deliverability", icon: Activity, testId: "nav-deliverability" },
+    ]
+  },
+  {
+    label: "Infrastructure",
+    items: [
       { to: "/domains", label: "Domains", icon: Globe, testId: "nav-domains" },
       { to: "/relays", label: "Relays", icon: Send, testId: "nav-relays" },
     ]
   },
   {
-    label: "Identities",
+    label: "Routing",
     items: [
-      { to: "/inbound", label: "Inbound (Webmail)", icon: Inbox, testId: "nav-inbound" },
       { to: "/mailboxes", label: "Mailboxes", icon: Mail, testId: "nav-mailboxes" },
       { to: "/aliases", label: "Aliases", icon: ArrowRightLeft, testId: "nav-aliases" },
     ]
   },
   {
-    label: "Intelligence",
+    label: "Logs & Monitoring",
     items: [
-      { to: "/deliverability", label: "Deliverability", icon: Activity, testId: "nav-deliverability" },
-      { to: "/logs", label: "Delivery Logs", icon: ScrollText, testId: "nav-logs" },
+      { to: "/logs", label: "Outbound Logs", icon: ScrollText, testId: "nav-logs" },
+      { to: "/inbound", label: "Inbound Logs", icon: Inbox, testId: "nav-inbound" },
       { to: "/worker", label: "Worker Queue", icon: Activity, testId: "nav-worker" },
     ]
   },
   {
-    label: "Configuration",
+    label: "Developers",
     items: [
       { to: "/tokens", label: "API Tokens", icon: KeyRound, testId: "nav-tokens" },
       { to: "/docs", label: "Documentation", icon: BookOpen, testId: "nav-docs" },
@@ -104,16 +109,18 @@ export default function AppShell({ children, fullWidth = false }) {
           </Button>
         </div>
 
-        <div className="px-4 py-4 border-b border-border">
-          <Button 
-            className="w-full justify-start gap-2 shadow-sm" 
-            onClick={() => setComposeOpen(true)}
-            data-testid="sidebar-compose-button"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="font-semibold">Compose</span>
-          </Button>
-        </div>
+        {user?.role === "mailbox" && (
+          <div className="px-4 py-4 border-b border-border">
+            <Button 
+              className="w-full justify-start gap-2 shadow-sm" 
+              onClick={() => setComposeOpen(true)}
+              data-testid="sidebar-compose-button"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="font-semibold">Compose</span>
+            </Button>
+          </div>
+        )}
 
         <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
           {NAV_GROUPS.map((group, i) => {

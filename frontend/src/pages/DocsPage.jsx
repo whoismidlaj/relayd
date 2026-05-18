@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import AppShell, { PageHeader } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, Code, Server, Shield, Globe, Terminal, Link as LinkIcon, Search } from "lucide-react";
+import { KeyRound, BookOpen, Code, Server, Shield, Globe, Terminal, Mail, Monitor } from "lucide-react";
 
 const DOCS_SECTIONS = [
-  { id: "overview", icon: BookOpen, title: "Overview & Architecture" },
-  { id: "deployment", icon: Server, title: "Deployment (Coolify)" },
-  { id: "domains", icon: Globe, title: "Domains & Cloudflare" },
-  { id: "identities", icon: Shield, title: "Mailboxes & Aliases" },
-  { id: "orchestration", icon: Terminal, title: "Relay Orchestration" },
-  { id: "api", icon: Code, title: "API Reference" },
+  { id: "overview",      icon: BookOpen,  title: "Overview & Architecture" },
+  { id: "deployment",    icon: Server,    title: "Deployment (Coolify)" },
+  { id: "domains",       icon: Globe,     title: "Domains & Cloudflare" },
+  { id: "identities",    icon: Shield,    title: "Mailboxes & Aliases" },
+  { id: "mail-client",   icon: Monitor,   title: "Mail Client Setup" },
+  { id: "orchestration", icon: Terminal,  title: "Relay Orchestration" },
+  { id: "api",           icon: Code,      title: "API Reference" },
 ];
 
 export default function DocsPage() {
   const [activeId, setActiveId] = useState("overview");
 
-  useEffect(() => {
+  React.useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (DOCS_SECTIONS.find(s => s.id === hash)) {
       setActiveId(hash);
@@ -30,13 +31,14 @@ export default function DocsPage() {
 
   const Content = () => {
     switch(activeId) {
-      case "overview": return <OverviewDoc setPage={setPage} />;
-      case "deployment": return <DeploymentDoc />;
-      case "domains": return <DomainsDoc />;
-      case "identities": return <IdentitiesDoc />;
+      case "overview":      return <OverviewDoc setPage={setPage} />;
+      case "deployment":    return <DeploymentDoc />;
+      case "domains":       return <DomainsDoc />;
+      case "identities":    return <IdentitiesDoc />;
+      case "mail-client":   return <MailClientDoc />;
       case "orchestration": return <OrchestrationDoc />;
-      case "api": return <ApiDoc />;
-      default: return <OverviewDoc setPage={setPage} />;
+      case "api":           return <ApiDoc />;
+      default:              return <OverviewDoc setPage={setPage} />;
     }
   };
 
@@ -72,8 +74,8 @@ export default function DocsPage() {
                   key={s.id}
                   onClick={() => setPage(s.id)}
                   className={`whitespace-nowrap px-3 py-1.5 text-xs rounded-full border transition-colors ${
-                    activeId === s.id 
-                      ? "bg-primary border-primary text-primary-foreground font-medium" 
+                    activeId === s.id
+                      ? "bg-primary border-primary text-primary-foreground font-medium"
                       : "border-border text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -99,24 +101,34 @@ function OverviewDoc({ setPage }) {
       <p className="text-muted-foreground text-lg">
         Relayd is a self-hostable email orchestration platform designed to replace fragmented Postfix instances with a unified "Datadog for Email" architecture.
       </p>
-      
+
       <div className="grid sm:grid-cols-2 gap-4 mt-8">
         <Card className="p-5 border-border hover:border-foreground/30 transition-colors cursor-pointer" onClick={() => setPage("orchestration")}>
           <Terminal className="h-5 w-5 mb-3 text-blue-500" />
           <h3 className="font-semibold mb-1">Hybrid Orchestration</h3>
           <p className="text-sm text-muted-foreground">Learn how to load-balance Resend, SES, and Brevo dynamically.</p>
         </Card>
+        <Card className="p-5 border-border hover:border-foreground/30 transition-colors cursor-pointer" onClick={() => setPage("mail-client")}>
+          <Monitor className="h-5 w-5 mb-3 text-purple-500" />
+          <h3 className="font-semibold mb-1">Mail Client Setup</h3>
+          <p className="text-sm text-muted-foreground">Connect Outlook, Apple Mail, or Thunderbird via SMTP & IMAP.</p>
+        </Card>
         <Card className="p-5 border-border hover:border-foreground/30 transition-colors cursor-pointer" onClick={() => setPage("deployment")}>
           <Server className="h-5 w-5 mb-3 text-emerald-500" />
           <h3 className="font-semibold mb-1">1-Click Deployment</h3>
           <p className="text-sm text-muted-foreground">Deploy Relayd to Coolify or Dokploy in seconds.</p>
+        </Card>
+        <Card className="p-5 border-border hover:border-foreground/30 transition-colors cursor-pointer" onClick={() => setPage("api")}>
+          <Code className="h-5 w-5 mb-3 text-amber-500" />
+          <h3 className="font-semibold mb-1">API Reference</h3>
+          <p className="text-sm text-muted-foreground">Send and receive emails programmatically via the REST API.</p>
         </Card>
       </div>
 
       <h2 className="text-2xl font-semibold mt-10 mb-4 border-b border-border pb-2">Core Concepts</h2>
       <div className="space-y-4 text-sm text-muted-foreground leading-relaxed">
         <p><strong>Outbound (Sending):</strong> Relayd acts as an API gateway. You send an email to Relayd, and the background worker routes it to the optimal provider based on weight, priority, and quota limits.</p>
-        <p><strong>Inbound (Receiving):</strong> Relayd runs a native SMTP listener (Port 25). It captures inbound emails for your domains and displays them in a secure, multi-tenant Webmail UI.</p>
+        <p><strong>Inbound (Receiving):</strong> Relayd runs a native SMTP listener (Port 25). It captures inbound emails for your domains and logs them in the Inbound Delivery Log for audit purposes.</p>
       </div>
     </div>
   );
@@ -127,7 +139,7 @@ function DeploymentDoc() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <h1 className="text-3xl font-bold tracking-tight">Deployment</h1>
       <p className="text-muted-foreground text-lg">Relayd runs natively in Docker and is fully compatible with modern PaaS platforms.</p>
-      
+
       <h2 className="text-xl font-semibold mt-8 mb-2">Deploying via Coolify</h2>
       <Card className="p-6 border-border">
         <ol className="list-decimal pl-5 space-y-3 text-sm text-muted-foreground">
@@ -152,7 +164,7 @@ function DomainsDoc() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <h1 className="text-3xl font-bold tracking-tight">Domains & DNS Sync</h1>
       <p className="text-muted-foreground text-lg">How to verify your domains and automatically provision DNS records.</p>
-      
+
       <h2 className="text-xl font-semibold mt-8 mb-2">Cloudflare Auto-Sync</h2>
       <p className="text-sm text-muted-foreground">
         Instead of manually copying MX, SPF, DKIM, and DMARC records, Relayd can push them directly to your Cloudflare zone.
@@ -177,33 +189,164 @@ function IdentitiesDoc() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <h1 className="text-3xl font-bold tracking-tight">Mailboxes & Aliases</h1>
       <p className="text-muted-foreground text-lg">Routing inbound emails efficiently while maintaining tenant privacy.</p>
-      
+
       <h2 className="text-xl font-semibold mt-8 mb-2">Catch-All Aliases</h2>
       <p className="text-sm text-muted-foreground">
-        To receive all emails sent to a domain, create an alias with the address <code>*@yourdomain.com</code>. 
+        To receive all emails sent to a domain, create an alias with the address <code>*@yourdomain.com</code>.
         You can route this alias to your personal email address.
       </p>
 
-      <h2 className="text-xl font-semibold mt-8 mb-2">Multi-Tenant Webmail Privacy</h2>
+      <h2 className="text-xl font-semibold mt-8 mb-2">Multi-Tenant Privacy</h2>
       <p className="text-sm text-muted-foreground mb-4">
-        By default, the Admin Unified Inbox shows all inbound emails. However, if you create a <strong>Dedicated Mailbox</strong> (which has its own password login), 
-        any emails sent to that address are explicitly stripped from the Admin's view. 
+        Admin delivery logs show metadata only (no subjects or bodies). Each mailbox user has a private view.
       </p>
       <Card className="p-4 border-l-4 border-l-blue-500 bg-blue-500/5 text-sm">
         This guarantees privacy. You can host mailboxes for clients or employees on your Relayd instance without their private emails cluttering your Admin view.
       </Card>
 
-      <h2 className="text-xl font-semibold mt-8 mb-2">IMAP / External Client Support</h2>
-      <p className="text-sm text-muted-foreground mb-4">
-        Relayd supports bridging to third-party IMAP servers like <strong>Stalwart</strong> or <strong>Dovecot</strong> for full external client support (Apple Mail, Outlook, Thunderbird).
+      <h2 className="text-xl font-semibold mt-8 mb-2">Welcome Email</h2>
+      <p className="text-sm text-muted-foreground">
+        When a mailbox is created, Relayd automatically sends a welcome email to that address with connection settings (SMTP/IMAP credentials). This can be used to quickly onboard users to their mail client.
       </p>
-      <Card className="p-6 border-border">
-        <ul className="list-disc pl-5 space-y-2 text-sm text-foreground">
-          <li><strong>Authentication:</strong> Configure your IMAP server to use HTTP directory authentication against <code>/api/auth/imap</code>. Relayd natively verifies the mailbox passwords.</li>
-          <li><strong>Inbound Routing:</strong> When Relayd receives an email on Port 25 destined for a dedicated mailbox, it will automatically forward a copy to the internal IMAP container on Port 2525.</li>
-        </ul>
-      </Card>
     </div>
+  );
+}
+
+function MailClientDoc() {
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Mail Client Setup</h1>
+        <p className="text-muted-foreground text-lg mt-2">
+          Connect any standard email client (Outlook, Apple Mail, Thunderbird, Gmail, mobile apps) to your Relayd mailbox using SMTP and IMAP.
+        </p>
+      </div>
+
+      <Card className="p-4 border-l-4 border-l-amber-500 bg-amber-500/5 text-sm">
+        <strong>Prerequisites:</strong> You must have a mailbox created in Relayd, a domain with valid MX records pointing to your server, and IMAP (port 993) exposed. Outbound SMTP submission (port 587) must also be open.
+      </Card>
+
+      {/* IMAP / Incoming */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 border-b border-border pb-2">Incoming Mail (IMAP)</h2>
+        <p className="text-sm text-muted-foreground mb-4">Use IMAP to receive and sync mail across devices. Your mail client will connect directly to the IMAP server.</p>
+        <Card className="p-0 overflow-hidden border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/30 border-b border-border">
+                <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">Setting</th>
+                <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">Value</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr><td className="px-4 py-3 font-medium">Protocol</td><td className="px-4 py-3 font-mono text-xs">IMAP</td></tr>
+              <tr className="bg-muted/10"><td className="px-4 py-3 font-medium">Server / Host</td><td className="px-4 py-3 font-mono text-xs">mail.yourdomain.com <span className="text-muted-foreground">(your server's hostname)</span></td></tr>
+              <tr><td className="px-4 py-3 font-medium">Port</td><td className="px-4 py-3 font-mono text-xs">993 <span className="text-muted-foreground">(SSL/TLS)</span> or 143 <span className="text-muted-foreground">(STARTTLS)</span></td></tr>
+              <tr className="bg-muted/10"><td className="px-4 py-3 font-medium">Encryption</td><td className="px-4 py-3 font-mono text-xs">SSL/TLS (recommended) or STARTTLS</td></tr>
+              <tr><td className="px-4 py-3 font-medium">Username</td><td className="px-4 py-3 font-mono text-xs">your full email address <span className="text-muted-foreground">(e.g. you@yourdomain.com)</span></td></tr>
+              <tr className="bg-muted/10"><td className="px-4 py-3 font-medium">Password</td><td className="px-4 py-3 font-mono text-xs">Your mailbox password <span className="text-muted-foreground">(set when creating the mailbox in Relayd)</span></td></tr>
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      {/* SMTP / Outgoing */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 border-b border-border pb-2">Outgoing Mail (SMTP)</h2>
+        <p className="text-sm text-muted-foreground mb-4">Use SMTP to send mail through Relayd. Your client authenticates against Relayd, which then routes via your configured relay providers.</p>
+        <Card className="p-0 overflow-hidden border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/30 border-b border-border">
+                <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">Setting</th>
+                <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">Value</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr><td className="px-4 py-3 font-medium">Protocol</td><td className="px-4 py-3 font-mono text-xs">SMTP</td></tr>
+              <tr className="bg-muted/10"><td className="px-4 py-3 font-medium">Server / Host</td><td className="px-4 py-3 font-mono text-xs">mail.yourdomain.com <span className="text-muted-foreground">(your server's hostname)</span></td></tr>
+              <tr><td className="px-4 py-3 font-medium">Port</td><td className="px-4 py-3 font-mono text-xs">587 <span className="text-muted-foreground">(STARTTLS — recommended)</span> or 465 <span className="text-muted-foreground">(SSL/TLS)</span></td></tr>
+              <tr className="bg-muted/10"><td className="px-4 py-3 font-medium">Encryption</td><td className="px-4 py-3 font-mono text-xs">STARTTLS (port 587) or SSL/TLS (port 465)</td></tr>
+              <tr><td className="px-4 py-3 font-medium">Authentication</td><td className="px-4 py-3 font-mono text-xs">Normal password / Plain</td></tr>
+              <tr className="bg-muted/10"><td className="px-4 py-3 font-medium">Username</td><td className="px-4 py-3 font-mono text-xs">your full email address <span className="text-muted-foreground">(e.g. you@yourdomain.com)</span></td></tr>
+              <tr><td className="px-4 py-3 font-medium">Password</td><td className="px-4 py-3 font-mono text-xs">Your mailbox password</td></tr>
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      {/* Client-specific guides */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 border-b border-border pb-2">Client-Specific Steps</h2>
+        <div className="space-y-4">
+          <ClientGuide
+            name="Thunderbird"
+            steps={[
+              "Open Thunderbird → Account Settings → Add Mail Account.",
+              "Enter your name, email address, and mailbox password. Click Continue.",
+              "Thunderbird will auto-detect settings. If not, click Configure Manually.",
+              "Set IMAP server to mail.yourdomain.com, port 993, SSL/TLS.",
+              "Set SMTP server to mail.yourdomain.com, port 587, STARTTLS.",
+              "Click Done.",
+            ]}
+          />
+          <ClientGuide
+            name="Apple Mail (macOS / iOS)"
+            steps={[
+              "Go to System Settings → Internet Accounts → Add Account → Other Mail Account.",
+              "Enter your name, email, and password. Click Sign In.",
+              "If auto-setup fails, manually enter mail.yourdomain.com for both incoming (IMAP, port 993) and outgoing (SMTP, port 587).",
+              "On iOS: go to Settings → Mail → Accounts → Add Account → Other.",
+            ]}
+          />
+          <ClientGuide
+            name="Microsoft Outlook"
+            steps={[
+              "Open Outlook → File → Add Account.",
+              "Enter your email address. Click Advanced Options → Let me set up my account manually → IMAP.",
+              "Incoming: mail.yourdomain.com, port 993, SSL/TLS.",
+              "Outgoing: mail.yourdomain.com, port 587, STARTTLS.",
+              "Enter username (full email) and password. Click Connect.",
+            ]}
+          />
+        </div>
+      </div>
+
+      {/* Troubleshooting */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 border-b border-border pb-2">Troubleshooting</h2>
+        <div className="space-y-3 text-sm text-muted-foreground">
+          <div className="flex gap-3"><Badge variant="outline" className="shrink-0 self-start mt-0.5">Port blocked</Badge><span>If port 993 or 587 times out, check your firewall / cloud provider security group rules. Oracle Cloud requires manual ingress rules.</span></div>
+          <div className="flex gap-3"><Badge variant="outline" className="shrink-0 self-start mt-0.5">SSL error</Badge><span>If you get a certificate error, make sure your IMAP server has a valid TLS cert (Let's Encrypt via Caddy or Traefik). Temporarily try port 143 with STARTTLS to confirm connectivity first.</span></div>
+          <div className="flex gap-3"><Badge variant="outline" className="shrink-0 self-start mt-0.5">Auth failed</Badge><span>Double-check the username is your full email address (not just the local part) and the password matches what was set in the Relayd mailbox settings.</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientGuide({ name, steps }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Card className="overflow-hidden border-border">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-muted/20 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Mail className="h-4 w-4 text-muted-foreground" />
+          <span className="font-medium text-sm">{name}</span>
+        </div>
+        <span className="text-muted-foreground text-xs">{open ? "▲ collapse" : "▼ expand"}</span>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 border-t border-border">
+          <ol className="list-decimal pl-5 space-y-2 text-sm text-muted-foreground mt-4">
+            {steps.map((s, i) => <li key={i}>{s}</li>)}
+          </ol>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -212,10 +355,10 @@ function OrchestrationDoc() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <h1 className="text-3xl font-bold tracking-tight">Relay Orchestration</h1>
       <p className="text-muted-foreground text-lg">Configuring the traffic engineering engine.</p>
-      
+
       <h2 className="text-xl font-semibold mt-8 mb-2">Priority Failover</h2>
       <p className="text-sm text-muted-foreground">
-        Relays are executed in order of Priority (Lower number runs first). If your primary provider (Priority 10) encounters an error (like a 429 Rate Limit), 
+        Relays are executed in order of Priority (Lower number runs first). If your primary provider (Priority 10) encounters an error (like a 429 Rate Limit),
         the worker will gracefully fall back to the next provider (Priority 20).
       </p>
 
@@ -248,7 +391,7 @@ function ApiDoc() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <h1 className="text-3xl font-bold tracking-tight">API Reference</h1>
       <p className="text-muted-foreground text-lg">Interact with Relayd programmatically from your applications.</p>
-      
+
       <Card className="p-6 border border-border mt-6">
         <h3 className="font-semibold mb-2 flex items-center gap-2"><KeyRound className="h-4 w-4" /> Authentication</h3>
         <p className="text-sm text-muted-foreground mb-4">
@@ -260,8 +403,7 @@ function ApiDoc() {
       </Card>
 
       <h2 className="text-xl font-semibold mt-10 mb-4">Core Endpoints</h2>
-      
-      {/* Send Email */}
+
       <Card className="p-0 overflow-hidden border border-border">
         <div className="bg-muted/30 px-6 py-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -277,13 +419,13 @@ function ApiDoc() {
   "to": "user@example.com",
   "subject": "Welcome!",
   "text": "Hello world.",
-  "html": "<p>Hello world.</p>"
+  "html": "<p>Hello world.</p>",
+  "tags": ["transactional", "welcome"]
 }`}
           </pre>
         </div>
       </Card>
 
-      {/* List Inbound */}
       <Card className="p-0 overflow-hidden border border-border mt-4">
         <div className="bg-muted/30 px-6 py-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -298,6 +440,3 @@ function ApiDoc() {
     </div>
   );
 }
-
-// Ensure KeyRound is imported
-import { KeyRound } from "lucide-react";

@@ -1,9 +1,10 @@
 """Mailboxes & Aliases routes."""
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
+import asyncio
 
 from auth import get_current_user, hash_password
 
@@ -34,7 +35,7 @@ async def list_mailboxes(user: dict = Depends(get_current_user)):
 
 
 @router.post("/mailboxes")
-async def create_mailbox(payload: MailboxIn, user: dict = Depends(get_current_user)):
+async def create_mailbox(payload: MailboxIn, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     from server import db
     domain = await db.domains.find_one({"id": payload.domain_id, "user_id": user["id"]}, {"_id": 0})
     if not domain:
@@ -59,7 +60,77 @@ async def create_mailbox(payload: MailboxIn, user: dict = Depends(get_current_us
     await db.mailboxes.insert_one(doc)
     doc.pop("password_hash", None)
     doc.pop("_id", None)
+    # Queue welcome email in the background (non-blocking)
+    background_tasks.add_task(_send_welcome_email, address, payload.display_name or local, domain["name"], user["id"])
     return doc
+
+async def _send_welcome_email(address: str, display_name: str, domain: str, user_id: str):
+    """Fire-and-forget welcome email to a newly created mailbox."""
+    import logging
+    from server import db
+    logger = logging.getLogger("relayd")
+    try:
+        # Find a default relay or any relay for this user
+        relay = await db.relays.find_one({"user_id": user_id, "is_default": True})
+        if not relay:
+            relay = await db.relays.find_one({"user_id": user_id})
+        if not relay:
+            logger.info(f"No relay configured — skipping welcome email for {address}")
+            return
+
+        html_body = f"""\
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px;">
+  <h2 style="margin-bottom:8px;">Welcome to Relayd, {display_name}!</h2>
+  <p style="color:#666;">Your mailbox <strong>{address}</strong> is ready. Here are your connection settings:</p>
+  <table style="width:100%;border-collapse:collapse;margin:24px 0;font-size:14px;">
+    <tr style="background:#f5f5f5;"><td style="padding:10px 14px;font-weight:600;">Incoming (IMAP)</td><td></td></tr>
+    <tr><td style="padding:8px 14px;color:#555;">Server</td><td style="padding:8px 14px;font-family:monospace;">mail.{domain}</td></tr>
+    <tr style="background:#f9f9f9;"><td style="padding:8px 14px;color:#555;">Port</td><td style="padding:8px 14px;font-family:monospace;">993 (SSL/TLS)</td></tr>
+    <tr><td style="padding:8px 14px;color:#555;">Username</td><td style="padding:8px 14px;font-family:monospace;">{address}</td></tr>
+    <tr style="background:#f5f5f5;"><td style="padding:10px 14px;font-weight:600;">Outgoing (SMTP)</td><td></td></tr>
+    <tr><td style="padding:8px 14px;color:#555;">Server</td><td style="padding:8px 14px;font-family:monospace;">mail.{domain}</td></tr>
+    <tr style="background:#f9f9f9;"><td style="padding:8px 14px;color:#555;">Port</td><td style="padding:8px 14px;font-family:monospace;">587 (STARTTLS)</td></tr>
+    <tr><td style="padding:8px 14px;color:#555;">Username</td><td style="padding:8px 14px;font-family:monospace;">{address}</td></tr>
+  </table>
+  <p style="color:#888;font-size:13px;">Use the password you were given when this mailbox was created. <br/>Need help? Check the Relayd documentation: <strong>Docs → Mail Client Setup</strong>.</p>
+</div>"""
+
+        text_body = f"""Welcome to Relayd, {display_name}!
+
+Your mailbox {address} is ready. Connection settings:
+
+Incoming (IMAP)
+  Server: mail.{domain}
+  Port:   993 (SSL/TLS)
+  User:   {address}
+
+Outgoing (SMTP)
+  Server: mail.{domain}
+  Port:   587 (STARTTLS)
+  User:   {address}
+
+Use the password you were given when this mailbox was created.
+See Docs → Mail Client Setup for step-by-step guides.
+"""
+
+        job = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "relay_id": str(relay["id"]),
+            "from_email": f"no-reply@{domain}",
+            "to": address,
+            "subject": f"Welcome to Relayd — your mailbox is ready",
+            "text": text_body,
+            "html": html_body,
+            "tags": ["system", "welcome"],
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "attempts": 0,
+        }
+        await db.send_queue.insert_one(job)
+        logger.info(f"Queued welcome email for {address}")
+    except Exception as e:
+        logger.warning(f"Failed to queue welcome email for {address}: {e}")
 
 
 @router.patch("/mailboxes/{mailbox_id}")

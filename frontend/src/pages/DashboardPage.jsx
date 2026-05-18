@@ -3,7 +3,7 @@ import AppShell, { PageHeader, SectionLabel } from "@/components/AppShell";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Inbox, ArrowRightLeft, Send, CheckCircle2, AlertTriangle, Activity, BarChart3, Zap } from "lucide-react";
+import { Globe, Inbox, ArrowRightLeft, Send, CheckCircle2, AlertTriangle, Activity, BarChart3, Zap, MailCheck, MailOpen } from "lucide-react";
 import { Link } from "react-router-dom";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -40,6 +40,29 @@ export default function DashboardPage() {
         <Stat label="Mailboxes" value={stats?.mailboxes ?? "—"} icon={Inbox} testId="stat-mailboxes" />
         <Stat label="Aliases" value={stats?.aliases ?? "—"} icon={ArrowRightLeft} testId="stat-aliases" />
         <Stat label="Relays" value={stats?.relays ?? "—"} icon={Send} testId="stat-relays" />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+        <Card className="rounded-md border border-border bg-card p-5 transition-colors hover:border-foreground/30 flex items-center gap-5" data-testid="stat-sent">
+          <div className="h-12 w-12 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+            <MailCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-[0.18em] font-semibold text-muted-foreground">Emails Sent</div>
+            <div className="mt-1 text-3xl font-semibold tracking-tight font-mono">{stats?.sent ?? "—"}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{stats?.failed ?? 0} failed / bounced</div>
+          </div>
+        </Card>
+        <Card className="rounded-md border border-border bg-card p-5 transition-colors hover:border-foreground/30 flex items-center gap-5" data-testid="stat-received">
+          <div className="h-12 w-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+            <MailOpen className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-[0.18em] font-semibold text-muted-foreground">Emails Received</div>
+            <div className="mt-1 text-3xl font-semibold tracking-tight font-mono">{stats?.received ?? "—"}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">across all mailboxes</div>
+          </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">

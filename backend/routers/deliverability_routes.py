@@ -41,6 +41,7 @@ async def stats(user: dict = Depends(get_current_user)):
     failed_count = await db.delivery_logs.count_documents({"user_id": uid, "status": "failed"})
     verified_count = await db.delivery_logs.count_documents({"user_id": uid})  # all
     verified_domains = await db.domains.count_documents({"user_id": uid, "verified": True})
+    received_count = await db.inbound_messages.count_documents({"user_id": uid})
 
     # Recent logs
     recent = await db.delivery_logs.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
@@ -80,6 +81,7 @@ async def stats(user: dict = Depends(get_current_user)):
         "relays": relay_count,
         "sent": sent_count,
         "failed": failed_count,
+        "received": received_count,
         "total_logs": verified_count,
         "recent_logs": recent,
         "timeseries": timeseries

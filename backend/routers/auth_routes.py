@@ -37,6 +37,10 @@ def _user_out(user: dict) -> dict:
 
 @router.post("/register")
 async def register(payload: RegisterIn, response: Response):
+    import os
+    if os.environ.get("DISABLE_REGISTRATION", "false").lower() == "true":
+        raise HTTPException(status_code=403, detail="Registration is disabled")
+        
     from server import db
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
