@@ -121,13 +121,14 @@ class RelaydHandler:
                     
                     if is_mailbox:
                         import smtplib
+                        dovecot_host = os.environ.get("DOVECOT_HOST", "dovecot")
+                        dovecot_port = int(os.environ.get("DOVECOT_LMTP_PORT", "2525"))
                         try:
-                            # Forward to internal stalwart container
-                            with smtplib.SMTP("stalwart", 2525, timeout=5) as smtp:
-                                smtp.send_message(msg, from_addr=mail_from, to_addrs=[rcpt_clean])
-                            logger.info(f"Forwarded {msg_id} to Stalwart")
+                            with smtplib.SMTP(dovecot_host, dovecot_port, timeout=5) as lmtp:
+                                lmtp.sendmail(mail_from or "MAILER-DAEMON", [rcpt_clean], content)
+                            logger.info(f"Forwarded {msg_id} to Dovecot LMTP ({dovecot_host}:{dovecot_port})")
                         except Exception as e:
-                            logger.info(f"Stalwart skip: {e}")
+                            logger.warning(f"Dovecot LMTP forward failed for {rcpt_clean}: {e} — message still saved in MongoDB")
                 except Exception as rcpt_err:
                     logger.error(f"Rcpt error {rcpt}: {rcpt_err}")
 

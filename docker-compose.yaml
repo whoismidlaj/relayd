@@ -10,9 +10,10 @@ services:
     networks: [relayd]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   backend:
     build: ./backend
@@ -26,16 +27,17 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123}"
       FRONTEND_URL: "${FRONTEND_URL:-http://localhost:8080}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8080}"
+      INTERNAL_SECRET: "${INTERNAL_SECRET:-relayd-internal}"
     depends_on:
       mongo:
         condition: service_healthy
     networks: [relayd]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "python -c \"import urllib.request, sys; r = urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4); sys.exit(0 if r.status == 200 else 1)\""]
+      interval: 15s
+      timeout: 6s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
   frontend:
     build:
@@ -44,14 +46,16 @@ services:
         REACT_APP_BACKEND_URL: "${PUBLIC_BACKEND_URL:-}"
     container_name: relayd-frontend
     restart: unless-stopped
-    depends_on: [backend]
+    depends_on:
+      backend:
+        condition: service_healthy
     networks: [relayd]
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   worker:
     build: ./backend
@@ -65,6 +69,12 @@ services:
       mongo:
         condition: service_healthy
     networks: [relayd]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import pymongo, sys; c = pymongo.MongoClient('mongodb://mongo:27017', serverSelectionTimeoutMS=3000); c.admin.command('ping'); sys.exit(0)\" || exit 1"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 15s
 
   inbound:
     build: ./backend
@@ -76,13 +86,46 @@ services:
     environment:
       MONGO_URL: "mongodb://mongo:27017"
       DB_NAME: "relayd_db"
+      DOVECOT_HOST: "dovecot"
+      DOVECOT_LMTP_PORT: "2525"
     depends_on:
       mongo:
         condition: service_healthy
     networks: [relayd]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket, sys; s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 25)); s.close(); sys.exit(0)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  dovecot:
+    build: ./dovecot
+    container_name: relayd-dovecot
+    restart: unless-stopped
+    environment:
+      RELAYD_API_URL: "http://backend:8000/api"
+      INTERNAL_SECRET: "${INTERNAL_SECRET:-relayd-internal}"
+    ports:
+      - "143:143"   # IMAP (plain/STARTTLS) — for mail clients
+      - "993:993"   # IMAPS (SSL) — recommended for clients
+      # Port 2525 (LMTP) is internal only — NOT exposed to host
+    volumes:
+      - dovecot_mail:/var/mail
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [relayd]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket, sys; s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 143)); s.close(); sys.exit(0)\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   mongo_data:
+  dovecot_mail:
 
 networks:
   relayd:
