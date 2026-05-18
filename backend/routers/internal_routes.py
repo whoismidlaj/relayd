@@ -33,9 +33,21 @@ async def dovecot_passwd(request: Request):
     for m in mailboxes:
         addr = m.get("address", "")
         pw_hash = m.get("password_hash", "")
-        # Dovecot passwd-file format: user:{SHA512-CRYPT}hash:uid:gid:extra:::
-        # We store bcrypt hashes — Dovecot supports {BLF-CRYPT} (bcrypt) natively
-        lines.append(f"{addr}:{{{pw_hash.split('$')[1].upper() if pw_hash.startswith('$') else 'PLAIN'}}}{pw_hash}:::::")
+        if not addr or not pw_hash:
+            continue
+        # Map Python bcrypt hash ($2b$...) to Dovecot's BLF-CRYPT scheme.
+        # Dovecot passwd-file format: user:{SCHEME}hash:::::
+        # bcrypt hashes start with $2b$, $2a$, or $2y$
+        if pw_hash.startswith(("$2b$", "$2a$", "$2y$")):
+            dovecot_entry = f"{addr}:{{BLF-CRYPT}}{pw_hash}:::::"
+        elif pw_hash.startswith("$5$"):
+            dovecot_entry = f"{addr}:{{SHA256-CRYPT}}{pw_hash}:::::"
+        elif pw_hash.startswith("$6$"):
+            dovecot_entry = f"{addr}:{{SHA512-CRYPT}}{pw_hash}:::::"
+        else:
+            # Fallback: store as plain (not recommended but won't crash Dovecot)
+            dovecot_entry = f"{addr}:{{PLAIN}}{pw_hash}:::::"
+        lines.append(dovecot_entry)
     
     logger.info(f"Dovecot passwd sync: {len(lines)} mailboxes")
     return "\n".join(lines)

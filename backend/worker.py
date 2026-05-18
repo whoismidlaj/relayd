@@ -103,6 +103,17 @@ async def run_worker():
                     {"$set": {"status": "completed", "result": result, "updated_at": now}}
                 )
                 logger.info(f"Task {task['id']} completed successfully")
+                
+                # Increment relay usage counter
+                if task.get("type") == "send_email":
+                    provider = task.get("payload", {}).get("provider", {})
+                    prov_id = provider.get("id")
+                    if prov_id:
+                        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                        await db.relays.update_one(
+                            {"id": prov_id},
+                            {"$set": {"usage_date": today_str, "health_status": "healthy"}, "$inc": {"usage_today": 1}}
+                        )
             else:
                 attempts = task.get("attempts", 0) + 1
                 max_retries = task.get("max_retries", 3)

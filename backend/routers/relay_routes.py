@@ -68,6 +68,12 @@ def _scrub_secrets(p: dict) -> dict:
 async def list_relays(user: dict = Depends(get_current_user)):
     from server import db
     items = await db.relays.find({"user_id": user["id"]}, {"_id": 0}).sort("priority", 1).to_list(100)
+    for r in items:
+        rid = r.get("id")
+        total_sends = await db.delivery_logs.count_documents({"user_id": user["id"], "provider_id": rid})
+        successful_sends = await db.delivery_logs.count_documents({"user_id": user["id"], "provider_id": rid, "status": "sent"})
+        r["total_sends"] = total_sends
+        r["successful_sends"] = successful_sends
     return [_scrub_secrets(p) for p in items]
 
 

@@ -439,22 +439,30 @@ export default function RelaysPage() {
                 </TableCell>
                 <TableCell className="font-mono">{r.priority} <span className="text-muted-foreground text-[10px] ml-1">(w:{r.weight || 100})</span></TableCell>
                 <TableCell className="hidden md:table-cell">
-                  {(r.daily_quota && r.daily_quota > 0) ? (
-                    <div className="flex flex-col gap-1 w-24">
-                      <div className="text-xs font-medium flex justify-between">
-                        <span>{r.usage_today || 0}</span>
-                        <span className="text-muted-foreground">/ {r.daily_quota}</span>
+                  <div className="flex flex-col gap-1.5">
+                    {r.daily_quota && r.daily_quota > 0 ? (
+                      <div className="flex flex-col gap-1 w-32">
+                        <div className="text-xs font-medium flex justify-between">
+                          <span>{r.usage_today || 0} today</span>
+                          <span className="text-muted-foreground">/ {r.daily_quota}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className={`h-1.5 rounded-full ${(r.usage_today || 0) >= r.daily_quota ? "bg-red-500" : "bg-primary"}`} 
+                            style={{ width: `${Math.min(100, ((r.usage_today || 0) / r.daily_quota) * 100)}%` }} 
+                          />
+                        </div>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                        <div 
-                          className={`h-1.5 rounded-full ${(r.usage_today || 0) >= r.daily_quota ? "bg-red-500" : "bg-primary"}`} 
-                          style={{ width: `${Math.min(100, ((r.usage_today || 0) / r.daily_quota) * 100)}%` }} 
-                        />
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-medium text-foreground">{r.usage_today || 0} today</span>
+                        <span className="text-[10px] text-muted-foreground">Unlimited quota</span>
                       </div>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Unlimited</span>
-                  )}
+                    )}
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      Lifetime: {r.total_sends || 0} sent ({r.successful_sends || 0} ok)
+                    </span>
+                  </div>
                 </TableCell>
                 <TableCell>
                   {!r.health_status || r.health_status === "healthy" ? (

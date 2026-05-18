@@ -28,6 +28,12 @@ if [ ! -f "$SSL_DIR/server.pem" ]; then
     -subj "/CN=relayd-imap"
 fi
 
+# Generate DH params if missing (fixes Dovecot DH warning)
+if [ ! -f "$SSL_DIR/dh.pem" ]; then
+  echo "[entrypoint] Generating DH parameters (this may take a moment)..."
+  openssl dhparam -out "$SSL_DIR/dh.pem" 2048
+fi
+
 # ---- Sync passwd file from Relayd API ----
 sync_passwd() {
   echo "[entrypoint] Syncing mailbox credentials from Relayd..."
