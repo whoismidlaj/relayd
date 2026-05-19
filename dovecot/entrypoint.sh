@@ -21,11 +21,18 @@ chown vmail:vmail "$MAIL_DIR"
 # ---- Generate self-signed SSL cert if not mounted ----
 mkdir -p "$SSL_DIR"
 if [ ! -f "$SSL_DIR/server.pem" ]; then
-  echo "[entrypoint] Generating self-signed SSL cert..."
+  echo "[entrypoint] Generating self-signed SSL cert with SAN..."
+  PUBLIC_IP=$(wget -qO- https://api.ipify.org || curl -s https://api.ipify.org || echo "")
+  SAN="DNS:localhost,IP:127.0.0.1"
+  if [ -n "$PUBLIC_IP" ]; then
+    SAN="$SAN,IP:$PUBLIC_IP"
+    echo "[entrypoint] Found public IP: $PUBLIC_IP"
+  fi
   openssl req -new -x509 -days 3650 -nodes \
     -out "$SSL_DIR/server.pem" \
     -keyout "$SSL_DIR/server.key" \
-    -subj "/CN=relayd-imap"
+    -subj "/CN=relayd-imap" \
+    -addext "subjectAltName=$SAN"
 fi
 
 # Generate DH params if missing (fixes Dovecot DH warning)

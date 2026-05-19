@@ -372,50 +372,67 @@ async def start_submission():
         ssl_dir = "."
     cert_path = f"{ssl_dir}/cert.pem"
     key_path = f"{ssl_dir}/key.pem"
-    
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         logger.info("Generating self-signed SSL certificate for SMTP Submission...")
-        # Fallback to pure-python cryptography library if openssl is not installed on Windows
         try:
-            if os.system(f'openssl req -new -x509 -days 3650 -nodes -out {cert_path} -keyout {key_path} -subj "/CN=relayd-smtp"') != 0:
-                raise Exception("openssl command failed")
-        except Exception:
-            logger.info("openssl command not found. Falling back to python 'cryptography' library...")
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.asymmetric import rsa
+            from cryptography.hazmat.primitives import serialization
+            import datetime
+            import ipaddress
+            import urllib.request
+
+            # Dynamically fetch public IP
+            public_ip = None
             try:
-                from cryptography import x509
-                from cryptography.x509.oid import NameOID
-                from cryptography.hazmat.primitives import hashes
-                from cryptography.hazmat.primitives.asymmetric import rsa
-                from cryptography.hazmat.primitives import serialization
-                import datetime
+                public_ip = urllib.request.urlopen("https://api.ipify.org", timeout=2).read().decode().strip()
+            except Exception:
+                pass
 
-                key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "relayd-smtp")])
-                cert = x509.CertificateBuilder().subject_name(
-                    subject
-                ).issuer_name(
-                    issuer
-                ).public_key(
-                    key.public_key()
-                ).serial_number(
-                    x509.random_serial_number()
-                ).not_valid_before(
-                    datetime.datetime.now(datetime.timezone.utc)
-                ).not_valid_after(
-                    datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
-                ).sign(key, hashes.SHA256())
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "relayd-smtp")])
+            
+            san_list = [
+                x509.DNSName("localhost"),
+                x509.IPAddress(ipaddress.IPv4Address("127.0.0.1"))
+            ]
+            if public_ip:
+                try:
+                    san_list.append(x509.IPAddress(ipaddress.IPv4Address(public_ip)))
+                    logger.info(f"Added public IP to SSL SAN list: {public_ip}")
+                except Exception:
+                    pass
 
-                with open(key_path, "wb") as f:
-                    f.write(key.private_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PrivateFormat.TraditionalOpenSSL,
-                        encryption_algorithm=serialization.NoEncryption(),
-                    ))
-                with open(cert_path, "wb") as f:
-                    f.write(cert.public_bytes(serialization.Encoding.PEM))
-                logger.info("✓ Successfully generated self-signed certificate using python cryptography!")
-            except Exception as e:
-                logger.error(f"Failed to generate self-signed SSL certificate: {e}")
+            cert = x509.CertificateBuilder().subject_name(
+                subject
+            ).issuer_name(
+                issuer
+            ).public_key(
+                key.public_key()
+            ).serial_number(
+                x509.random_serial_number()
+            ).not_valid_before(
+                datetime.datetime.now(datetime.timezone.utc)
+            ).not_valid_after(
+                datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
+            ).add_extension(
+                x509.SubjectAlternativeName(san_list),
+                critical=False,
+            ).sign(key, hashes.SHA256())
+
+            with open(key_path, "wb") as f:
+                f.write(key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                ))
+            with open(cert_path, "wb") as f:
+                f.write(cert.public_bytes(serialization.Encoding.PEM))
+            logger.info("✓ Successfully generated self-signed certificate using python cryptography!")
+        except Exception as e:
+            logger.error(f"Failed to generate self-signed SSL certificate: {e}")
         
     # Build SSL Context for STARTTLS
     try:
