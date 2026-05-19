@@ -17,6 +17,18 @@ from auth import verify_password
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("relayd-inbound")
 
+# Dynamic .env Loader
+def load_env():
+    if os.path.exists(".env"):
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ[key.strip()] = val.strip()
+
+load_env()
+
 client = None
 db = None
 
@@ -328,6 +340,7 @@ async def start_inbound():
             client_kwargs["tls"] = True
         
     client = AsyncIOMotorClient(mongo_url, **client_kwargs)
+    client.get_io_loop = asyncio.get_running_loop
     db = client[db_name]
     
     # Expose db reference to server module so imported routes work in this process context
@@ -335,9 +348,11 @@ async def start_inbound():
     server.db = db
     
     handler = RelaydHandler()
-    controller = Controller(handler, hostname='0.0.0.0', port=25)
+    smtp_port = int(os.environ.get("SMTP_PORT", 25))
+    smtp_host = os.environ.get("SMTP_HOST", "127.0.0.1" if sys.platform == "win32" else "0.0.0.0")
+    controller = Controller(handler, hostname=smtp_host, port=smtp_port)
     
-    logger.info("Starting Inbound SMTP listener on port 25...")
+    logger.info(f"Starting Inbound SMTP listener on port {smtp_port} on {smtp_host}...")
     controller.start()
     
     try:
@@ -352,13 +367,55 @@ async def start_submission():
     db_name = os.environ.get("DB_NAME", "relayd_db")
     
     # Generate self-signed cert if missing
-    ssl_dir = "/app"
+    ssl_dir = os.environ.get("SSL_DIR", "/app")
+    if not os.path.exists(ssl_dir):
+        ssl_dir = "."
     cert_path = f"{ssl_dir}/cert.pem"
     key_path = f"{ssl_dir}/key.pem"
     
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         logger.info("Generating self-signed SSL certificate for SMTP Submission...")
-        os.system(f'openssl req -new -x509 -days 3650 -nodes -out {cert_path} -keyout {key_path} -subj "/CN=relayd-smtp"')
+        # Fallback to pure-python cryptography library if openssl is not installed on Windows
+        try:
+            if os.system(f'openssl req -new -x509 -days 3650 -nodes -out {cert_path} -keyout {key_path} -subj "/CN=relayd-smtp"') != 0:
+                raise Exception("openssl command failed")
+        except Exception:
+            logger.info("openssl command not found. Falling back to python 'cryptography' library...")
+            try:
+                from cryptography import x509
+                from cryptography.x509.oid import NameOID
+                from cryptography.hazmat.primitives import hashes
+                from cryptography.hazmat.primitives.asymmetric import rsa
+                from cryptography.hazmat.primitives import serialization
+                import datetime
+
+                key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "relayd-smtp")])
+                cert = x509.CertificateBuilder().subject_name(
+                    subject
+                ).issuer_name(
+                    issuer
+                ).public_key(
+                    key.public_key()
+                ).serial_number(
+                    x509.random_serial_number()
+                ).not_valid_before(
+                    datetime.datetime.now(datetime.timezone.utc)
+                ).not_valid_after(
+                    datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
+                ).sign(key, hashes.SHA256())
+
+                with open(key_path, "wb") as f:
+                    f.write(key.private_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PrivateFormat.TraditionalOpenSSL,
+                        encryption_algorithm=serialization.NoEncryption(),
+                    ))
+                with open(cert_path, "wb") as f:
+                    f.write(cert.public_bytes(serialization.Encoding.PEM))
+                logger.info("✓ Successfully generated self-signed certificate using python cryptography!")
+            except Exception as e:
+                logger.error(f"Failed to generate self-signed SSL certificate: {e}")
         
     # Build SSL Context for STARTTLS
     try:
@@ -371,15 +428,17 @@ async def start_submission():
     authenticator = MailboxAuthenticator(mongo_url, db_name)
     handler = SubmissionHandler()
     
+    submission_port = int(os.environ.get("SUBMISSION_PORT", 587))
+    submission_host = os.environ.get("SUBMISSION_HOST", "127.0.0.1" if sys.platform == "win32" else "0.0.0.0")
     controller = STARTTLSController(
         handler, 
-        hostname='0.0.0.0', 
-        port=587, 
+        hostname=submission_host, 
+        port=submission_port, 
         tls_context=context, 
         authenticator=authenticator
     )
     
-    logger.info("Starting Outgoing SMTP Submission listener on port 587...")
+    logger.info(f"Starting Outgoing SMTP Submission listener on port {submission_port} on {submission_host}...")
     controller.start()
     
     try:

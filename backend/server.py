@@ -70,6 +70,7 @@ class RelaydModule(ModuleType):
             
             from motor.motor_asyncio import AsyncIOMotorClient
             loop._relayd_client = AsyncIOMotorClient(mongo_url, **client_kwargs)
+            loop._relayd_client.get_io_loop = asyncio.get_running_loop
             loop._relayd_db = loop._relayd_client[db_name]
             return loop._relayd_db
         except RuntimeError:
@@ -115,6 +116,7 @@ async def lifespan(app: FastAPI):
             client_kwargs["tls"] = True
 
     client = AsyncIOMotorClient(mongo_url, **client_kwargs)
+    client.get_io_loop = asyncio.get_running_loop
     _global_db = client[db_name]
     
     # Store on main loop
