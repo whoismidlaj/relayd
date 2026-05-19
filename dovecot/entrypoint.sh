@@ -41,6 +41,13 @@ if [ ! -f "$SSL_DIR/dh.pem" ]; then
   openssl dhparam -out "$SSL_DIR/dh.pem" 2048
 fi
 
+# Ensure correct permissions for SSL certs & DH parameters so Dovecot can read them
+chmod 755 "$SSL_DIR"
+if [ -f "$SSL_DIR/server.pem" ]; then chmod 644 "$SSL_DIR"/server.pem; fi
+if [ -f "$SSL_DIR/server.key" ]; then chmod 600 "$SSL_DIR"/server.key; fi
+if [ -f "$SSL_DIR/dh.pem" ]; then chmod 644 "$SSL_DIR"/dh.pem; fi
+
+
 # ---- Sync passwd file from Relayd API ----
 sync_passwd() {
   echo "[entrypoint] Syncing mailbox credentials from Relayd..."
