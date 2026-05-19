@@ -1,27 +1,30 @@
 version: "3.9"
 
 services:
-  mongo:
-    image: mongo:7
-    container_name: relayd-mongo
+  postgres:
+    image: postgres:16-alpine
+    container_name: relayd-postgres
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: relayd
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
-      - mongo_data:/data/db
+      - postgres_data:/var/lib/postgresql/data
     networks: [relayd]
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 10s
 
   backend:
     build: ./backend
     container_name: relayd-backend
     restart: unless-stopped
     environment:
-      MONGO_URL: "mongodb://mongo:27017"
-      DB_NAME: "relayd_db"
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/relayd"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production-please-set-a-long-random-string}"
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123}"
@@ -29,7 +32,7 @@ services:
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8080}"
       INTERNAL_SECRET: "${INTERNAL_SECRET:-relayd-internal}"
     depends_on:
-      mongo:
+      postgres:
         condition: service_healthy
     networks: [relayd]
     healthcheck:
@@ -63,14 +66,13 @@ services:
     command: python worker.py
     restart: unless-stopped
     environment:
-      MONGO_URL: "mongodb://mongo:27017"
-      DB_NAME: "relayd_db"
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/relayd"
     depends_on:
-      mongo:
+      postgres:
         condition: service_healthy
     networks: [relayd]
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import pymongo, sys; c = pymongo.MongoClient('mongodb://mongo:27017', serverSelectionTimeoutMS=3000); c.admin.command('ping'); sys.exit(0)\" || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import psycopg2; conn = psycopg2.connect('postgresql://postgres:postgres@postgres:5432/relayd'); conn.close()\" || exit 1"]
       interval: 30s
       timeout: 8s
       retries: 3
@@ -85,12 +87,11 @@ services:
       - "25:25"
       - "587:587"
     environment:
-      MONGO_URL: "mongodb://mongo:27017"
-      DB_NAME: "relayd_db"
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/relayd"
       DOVECOT_HOST: "dovecot"
       DOVECOT_LMTP_PORT: "2525"
     depends_on:
-      mongo:
+      postgres:
         condition: service_healthy
     networks: [relayd]
     healthcheck:
@@ -110,7 +111,6 @@ services:
     ports:
       - "143:143"   # IMAP (plain/STARTTLS) — for mail clients
       - "993:993"   # IMAPS (SSL) — recommended for clients
-      # Port 2525 (LMTP) is internal only — NOT exposed to host
     volumes:
       - dovecot_mail:/var/mail
     depends_on:
@@ -125,7 +125,7 @@ services:
       start_period: 20s
 
 volumes:
-  mongo_data:
+  postgres_data:
   dovecot_mail:
 
 networks:

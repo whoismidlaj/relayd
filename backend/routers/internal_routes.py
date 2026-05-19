@@ -4,8 +4,13 @@ Protected by a shared INTERNAL_SECRET env var instead of JWT.
 """
 import os
 import logging
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from auth import verify_password
+from database import get_db
+from models import Mailbox
 
 router = APIRouter(tags=["internal"])
 logger = logging.getLogger("relayd")
@@ -20,24 +25,23 @@ def _check_secret(request: Request):
 
 
 @router.get("/internal/dovecot-passwd", response_class=__import__("fastapi").responses.PlainTextResponse)
-async def dovecot_passwd(request: Request):
+async def dovecot_passwd(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Returns a Dovecot passwd-file formatted list of all active mailboxes.
     Format: email:{plain}password:::::
     Called by the Dovecot entrypoint every 5 minutes to sync credentials.
     """
     _check_secret(request)
-    from server import db
-    mailboxes = await db.mailboxes.find({"active": True}, {"_id": 0, "address": 1, "password_hash": 1}).to_list(None)
+    
+    result = await db.execute(select(Mailbox).where(Mailbox.active == True))
+    mailboxes = result.scalars().all()
     lines = []
     for m in mailboxes:
-        addr = m.get("address", "")
-        pw_hash = m.get("password_hash", "")
+        addr = m.address
+        pw_hash = m.password_hash
         if not addr or not pw_hash:
             continue
         # Map Python bcrypt hash ($2b$...) to Dovecot's BLF-CRYPT scheme.
-        # Dovecot passwd-file format: user:{SCHEME}hash:::::
-        # bcrypt hashes start with $2b$, $2a$, or $2y$
         if pw_hash.startswith(("$2b$", "$2a$", "$2y$")):
             dovecot_entry = f"{addr}:{{BLF-CRYPT}}{pw_hash}:::::"
         elif pw_hash.startswith("$5$"):
@@ -54,7 +58,7 @@ async def dovecot_passwd(request: Request):
 
 
 @router.post("/internal/dovecot-auth")
-async def dovecot_auth(request: Request):
+async def dovecot_auth(request: Request, db: AsyncSession = Depends(get_db)):
     """
     HTTP passdb endpoint for Dovecot checkpassword.
     Body: { "username": "...", "password": "..." }
@@ -62,7 +66,6 @@ async def dovecot_auth(request: Request):
     Used as an alternative to passwd-file for real-time auth.
     """
     _check_secret(request)
-    from server import db
     body = await request.json()
     username = (body.get("username") or "").lower().strip()
     password = body.get("password") or ""
@@ -70,11 +73,12 @@ async def dovecot_auth(request: Request):
     if not username or not password:
         raise HTTPException(status_code=400, detail="Missing credentials")
 
-    mailbox = await db.mailboxes.find_one({"address": username, "active": True})
+    result = await db.execute(select(Mailbox).where(Mailbox.address == username, Mailbox.active == True))
+    mailbox = result.scalar_one_or_none()
     if not mailbox:
         raise HTTPException(status_code=403, detail="User not found")
 
-    if not verify_password(password, mailbox["password_hash"]):
+    if not verify_password(password, mailbox.password_hash):
         raise HTTPException(status_code=403, detail="Invalid password")
 
     return {

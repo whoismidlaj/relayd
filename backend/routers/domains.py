@@ -2,10 +2,14 @@
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy import select, update, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
+from database import get_db
+from models import Domain, Mailbox, Alias
 from services.dns_service import (
     generate_dkim_keypair, generate_dns_records,
     run_full_check, compute_score,
@@ -25,167 +29,156 @@ class DomainUpdate(BaseModel):
     mail_host: Optional[str] = None
 
 
-def _shape(d: dict) -> dict:
+def _shape(d: Domain) -> dict:
     return {
-        "id": d["id"],
-        "name": d["name"],
-        "user_id": d["user_id"],
-        "dkim_selector": d.get("dkim_selector", "mail"),
-        "mail_host": d.get("mail_host", "mail"),
-        "dkim_public_key": d.get("dkim_public_key"),
-        "verified": d.get("verified", False),
-        "last_checked_at": d.get("last_checked_at"),
-        "score": d.get("score", 0),
-        "checks": d.get("checks", {}),
-        "created_at": d.get("created_at"),
+        "id": d.id,
+        "name": d.name,
+        "user_id": d.user_id,
+        "dkim_selector": d.dkim_selector or "mail",
+        "mail_host": d.mail_host or "mail",
+        "dkim_public_key": d.dkim_public_key,
+        "verified": d.verified,
+        "last_checked_at": d.last_checked_at.isoformat() if d.last_checked_at else None,
+        "score": d.score or 0,
+        "checks": d.checks or {},
+        "created_at": d.created_at.isoformat() if d.created_at else None,
     }
 
 
 @router.get("")
-async def list_domains(user: dict = Depends(get_current_user)):
-    from server import db
-    items = await db.domains.find({"user_id": user["id"]}, {"_id": 0, "dkim_private_key": 0}).to_list(500)
-    return items
+async def list_domains(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Domain).where(Domain.user_id == user["id"]))
+    return [_shape(d) for d in result.scalars().all()]
 
 
 @router.post("")
-async def create_domain(payload: DomainIn, user: dict = Depends(get_current_user)):
-    from server import db
+async def create_domain(payload: DomainIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     name = payload.name.lower().strip().lstrip("@")
     if not name or "." not in name:
         raise HTTPException(status_code=400, detail="Invalid domain name")
-    if await db.domains.find_one({"user_id": user["id"], "name": name}):
+
+    result = await db.execute(select(Domain).where(Domain.user_id == user["id"], Domain.name == name))
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Domain already exists")
+
     priv, pub = generate_dkim_keypair()
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "name": name,
-        "dkim_selector": payload.dkim_selector,
-        "mail_host": payload.mail_host,
-        "dkim_private_key": priv,
-        "dkim_public_key": pub,
-        "verified": False,
-        "score": 0,
-        "checks": {},
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.domains.insert_one(doc)
-    return _shape(doc)
+    domain = Domain(
+        id=str(uuid.uuid4()),
+        user_id=user["id"],
+        name=name,
+        dkim_selector=payload.dkim_selector,
+        mail_host=payload.mail_host,
+        dkim_private_key=priv,
+        dkim_public_key=pub,
+        verified=False,
+        score=0,
+        checks={},
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(domain)
+    await db.flush()
+    return _shape(domain)
 
 
 @router.get("/{domain_id}")
-async def get_domain(domain_id: str, user: dict = Depends(get_current_user)):
-    from server import db
-    d = await db.domains.find_one({"id": domain_id, "user_id": user["id"]}, {"_id": 0, "dkim_private_key": 0})
+async def get_domain(domain_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Domain).where(Domain.id == domain_id, Domain.user_id == user["id"]))
+    d = result.scalar_one_or_none()
     if not d:
         raise HTTPException(status_code=404, detail="Domain not found")
-    return d
+    return _shape(d)
 
 
 @router.patch("/{domain_id}")
-async def update_domain(domain_id: str, payload: DomainUpdate, user: dict = Depends(get_current_user)):
-    from server import db
-    update = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if not update:
-        raise HTTPException(status_code=400, detail="Nothing to update")
-    result = await db.domains.update_one({"id": domain_id, "user_id": user["id"]}, {"$set": update})
-    if result.matched_count == 0:
+async def update_domain(domain_id: str, payload: DomainUpdate, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Domain).where(Domain.id == domain_id, Domain.user_id == user["id"]))
+    d = result.scalar_one_or_none()
+    if not d:
         raise HTTPException(status_code=404, detail="Domain not found")
-    d = await db.domains.find_one({"id": domain_id}, {"_id": 0, "dkim_private_key": 0})
-    return d
+
+    changes = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not changes:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    for k, v in changes.items():
+        setattr(d, k, v)
+    await db.flush()
+    return _shape(d)
 
 
 @router.delete("/{domain_id}")
-async def delete_domain(domain_id: str, user: dict = Depends(get_current_user)):
-    from server import db
-    result = await db.domains.delete_one({"id": domain_id, "user_id": user["id"]})
-    if result.deleted_count == 0:
+async def delete_domain(domain_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Domain).where(Domain.id == domain_id, Domain.user_id == user["id"]))
+    d = result.scalar_one_or_none()
+    if not d:
         raise HTTPException(status_code=404, detail="Domain not found")
-    await db.mailboxes.delete_many({"domain_id": domain_id})
-    await db.aliases.delete_many({"domain_id": domain_id})
+    await db.delete(d)  # cascades to mailboxes + aliases
     return {"ok": True}
 
 
 @router.get("/{domain_id}/dns")
-async def dns_records(domain_id: str, user: dict = Depends(get_current_user)):
-    from server import db
-    d = await db.domains.find_one({"id": domain_id, "user_id": user["id"]}, {"_id": 0})
+async def dns_records(domain_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Domain).where(Domain.id == domain_id, Domain.user_id == user["id"]))
+    d = result.scalar_one_or_none()
     if not d:
         raise HTTPException(status_code=404, detail="Domain not found")
-    records = generate_dns_records(d["name"], d["dkim_selector"], d["dkim_public_key"], d.get("mail_host", "mail"))
-    return {"records": records, "domain": d["name"], "selector": d["dkim_selector"]}
+    records = generate_dns_records(d.name, d.dkim_selector, d.dkim_public_key, d.mail_host or "mail")
+    return {"records": records, "domain": d.name, "selector": d.dkim_selector}
 
 
 @router.post("/{domain_id}/verify")
-async def verify_domain(domain_id: str, user: dict = Depends(get_current_user)):
-    from server import db
-    d = await db.domains.find_one({"id": domain_id, "user_id": user["id"]}, {"_id": 0})
+async def verify_domain(domain_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Domain).where(Domain.id == domain_id, Domain.user_id == user["id"]))
+    d = result.scalar_one_or_none()
     if not d:
         raise HTTPException(status_code=404, detail="Domain not found")
-    checks = run_full_check(d)
+
+    d_dict = {"name": d.name, "dkim_selector": d.dkim_selector, "dkim_public_key": d.dkim_public_key,
+              "dkim_private_key": d.dkim_private_key, "mail_host": d.mail_host}
+    checks = run_full_check(d_dict)
     score = compute_score(checks)
-    verified = score == 100
-    await db.domains.update_one(
-        {"id": domain_id},
-        {"$set": {
-            "checks": checks, "score": score, "verified": verified,
-            "last_checked_at": datetime.now(timezone.utc).isoformat(),
-        }},
-    )
-    return {"checks": checks, "score": score, "verified": verified}
+    d.checks = checks
+    d.score = score
+    d.verified = score == 100
+    d.last_checked_at = datetime.now(timezone.utc)
+    await db.flush()
+    return {"checks": checks, "score": score, "verified": d.verified}
 
 
 class CloudflareSyncIn(BaseModel):
     api_token: str
 
+
 @router.post("/{domain_id}/cloudflare-sync")
-async def sync_cloudflare(domain_id: str, payload: CloudflareSyncIn, user: dict = Depends(get_current_user)):
-    from server import db
+async def sync_cloudflare(domain_id: str, payload: CloudflareSyncIn, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     import httpx
-    
-    d = await db.domains.find_one({"id": domain_id, "user_id": user["id"]})
+    result = await db.execute(select(Domain).where(Domain.id == domain_id, Domain.user_id == user["id"]))
+    d = result.scalar_one_or_none()
     if not d:
         raise HTTPException(status_code=404, detail="Domain not found")
-        
-    records = generate_dns_records(d["name"], d["dkim_selector"], d["dkim_public_key"], d.get("mail_host", "mail"))
-    
-    headers = {
-        "Authorization": f"Bearer {payload.api_token}",
-        "Content-Type": "application/json"
-    }
-    
+
+    records = generate_dns_records(d.name, d.dkim_selector, d.dkim_public_key, d.mail_host or "mail")
+    headers = {"Authorization": f"Bearer {payload.api_token}", "Content-Type": "application/json"}
+
     async with httpx.AsyncClient() as client:
-        # 1. Get Zone ID
-        r = await client.get(f"https://api.cloudflare.com/client/v4/zones?name={d['name']}", headers=headers)
+        r = await client.get(f"https://api.cloudflare.com/client/v4/zones?name={d.name}", headers=headers)
         if r.status_code != 200:
-            raise HTTPException(status_code=400, detail="Invalid Cloudflare API token or domain not found in Cloudflare account.")
-            
+            raise HTTPException(status_code=400, detail="Invalid Cloudflare API token or domain not found.")
         zones = r.json().get("result", [])
         if not zones:
             raise HTTPException(status_code=404, detail="Zone not found in your Cloudflare account.")
-            
         zone_id = zones[0]["id"]
-        
-        # 2. Push records
+
         results = []
         for rec in records:
-            cf_rec = {
-                "type": rec["kind"],
-                "name": rec["name"],
-                "content": rec["value"],
-                "ttl": 1, # Auto
-            }
+            cf_rec = {"type": rec["kind"], "name": rec["name"], "content": rec["value"], "ttl": 1}
             if rec["kind"] == "MX":
-                # Cloudflare expects priority in a separate field for MX
                 parts = rec["value"].split(" ", 1)
                 if len(parts) == 2:
                     cf_rec["priority"] = int(parts[0])
                     cf_rec["content"] = parts[1]
                 else:
                     cf_rec["priority"] = 10
-            
             resp = await client.post(f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records", headers=headers, json=cf_rec)
             results.append({"record": rec["kind"], "success": resp.status_code == 200, "detail": resp.json()})
-            
+
     return {"ok": True, "results": results}

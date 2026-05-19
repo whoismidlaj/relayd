@@ -3,7 +3,12 @@ import os
 import platform
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from auth import get_current_user
+from database import get_db
+from models import Relay, Domain, Mailbox, Alias, DeliveryLog, Task
 
 router = APIRouter(tags=["debug"])
 
@@ -18,86 +23,121 @@ def _redact(val: str | None, keep: int = 4) -> str:
     return f"{'*' * (len(s) - keep)}{s[-keep:]}"
 
 
-def _sanitize_relay(r: dict) -> dict:
-    cfg = dict(r.get("config") or {})
+def _sanitize_relay(r: Relay) -> dict:
+    cfg = dict(r.config or {})
     # Redact all known secret fields
     for secret_key in ("api_key", "password", "secret_access_key", "token"):
         if secret_key in cfg:
             cfg[secret_key] = _redact(cfg.get(secret_key))
     return {
-        "id": r.get("id"),
-        "name": r.get("name"),
-        "type": r.get("type"),
-        "priority": r.get("priority"),
-        "weight": r.get("weight"),
-        "is_default": r.get("is_default"),
-        "daily_quota": r.get("daily_quota"),
-        "health_status": r.get("health_status"),
-        "match_domains": r.get("match_domains", []),
-        "match_tags": r.get("match_tags", []),
-        "usage_today": r.get("usage_today", 0),
+        "id": r.id,
+        "name": r.name,
+        "type": r.type,
+        "priority": r.priority,
+        "weight": r.weight,
+        "is_default": r.is_default,
+        "daily_quota": r.daily_quota,
+        "health_status": r.health_status,
+        "match_domains": r.match_domains or [],
+        "match_tags": r.match_tags or [],
+        "usage_today": r.usage_today,
         "config_keys": list(cfg.keys()),  # which fields are set, but not values
         "config": cfg,
     }
 
 
-def _sanitize_domain(d: dict) -> dict:
+def _sanitize_domain(d: Domain) -> dict:
     return {
-        "id": d.get("id"),
-        "name": d.get("name"),
-        "verified": d.get("verified"),
-        "score": d.get("score"),
-        "last_checked_at": d.get("last_checked_at"),
-        "checks": d.get("checks", {}),
-        "mx": d.get("mx"),
-        "spf": d.get("spf"),
-        "dkim_selector": d.get("dkim_selector"),
+        "id": d.id,
+        "name": d.name,
+        "verified": d.verified,
+        "score": d.score,
+        "last_checked_at": d.last_checked_at.isoformat() if d.last_checked_at else None,
+        "checks": d.checks or {},
+        "dkim_selector": d.dkim_selector,
     }
 
 
-def _sanitize_mailbox(m: dict) -> dict:
+def _sanitize_mailbox(m: Mailbox) -> dict:
     return {
-        "id": m.get("id"),
-        "address": m.get("address"),
-        "domain": m.get("domain"),
-        "display_name": m.get("display_name"),
-        "active": m.get("active"),
-        "quota_mb": m.get("quota_mb"),
-        "created_at": m.get("created_at"),
+        "id": m.id,
+        "address": m.address,
+        "domain": m.domain,
+        "display_name": m.display_name,
+        "active": m.active,
+        "quota_mb": m.quota_mb,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
     }
 
 
-def _sanitize_alias(a: dict) -> dict:
+def _sanitize_alias(a: Alias) -> dict:
     return {
-        "id": a.get("id"),
-        "address": a.get("address"),
-        "domain": a.get("domain"),
-        "catch_all": a.get("catch_all"),
-        "destinations": a.get("destinations", []),
-        "enabled": a.get("enabled"),
-        "created_at": a.get("created_at"),
+        "id": a.id,
+        "address": a.address,
+        "domain": a.domain,
+        "catch_all": a.catch_all,
+        "destinations": a.destinations or [],
+        "enabled": a.enabled,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
     }
 
 
 @router.get("/debug/export")
-async def debug_export(user: dict = Depends(get_current_user)):
+async def debug_export(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Export a sanitized JSON snapshot of the current app state for bug reporting."""
-    from server import db
     uid = user["id"]
 
-    relays     = await db.relays.find({"user_id": uid}, {"_id": 0}).to_list(None)
-    domains    = await db.domains.find({"user_id": uid}, {"_id": 0}).to_list(None)
-    mailboxes  = await db.mailboxes.find({"user_id": uid}, {"_id": 0, "password_hash": 0}).to_list(None)
-    aliases    = await db.aliases.find({"user_id": uid}, {"_id": 0}).to_list(None)
+    relays_res = await db.execute(select(Relay).where(Relay.user_id == uid))
+    relays = relays_res.scalars().all()
 
-    sent_count     = await db.delivery_logs.count_documents({"user_id": uid, "status": "sent"})
-    failed_count   = await db.delivery_logs.count_documents({"user_id": uid, "status": "failed"})
-    pending_count  = await db.send_queue.count_documents({"user_id": uid, "status": "pending"})
-    received_count = await db.inbound_messages.count_documents({"user_id": uid})
+    domains_res = await db.execute(select(Domain).where(Domain.user_id == uid))
+    domains = domains_res.scalars().all()
 
-    recent_logs = await db.delivery_logs.find(
-        {"user_id": uid}, {"_id": 0, "html": 0, "text": 0, "body": 0}
-    ).sort("created_at", -1).limit(10).to_list(10)
+    mailboxes_res = await db.execute(select(Mailbox).where(Mailbox.user_id == uid))
+    mailboxes = mailboxes_res.scalars().all()
+
+    aliases_res = await db.execute(select(Alias).where(Alias.user_id == uid))
+    aliases = aliases_res.scalars().all()
+
+    sent_count = (await db.execute(
+        select(func.count(DeliveryLog.id)).where(DeliveryLog.user_id == uid, DeliveryLog.status == "sent")
+    )).scalar()
+
+    failed_count = (await db.execute(
+        select(func.count(DeliveryLog.id)).where(DeliveryLog.user_id == uid, DeliveryLog.status == "failed")
+    )).scalar()
+
+    pending_count = (await db.execute(
+        select(func.count(Task.id)).where(Task.user_id == uid, Task.type == "send_email", Task.status == "pending")
+    )).scalar()
+
+    # received_count is 0 since we removed direct mongo writes and store everything inside Dovecot Maildirs
+    received_count = 0
+
+    recent_logs_res = await db.execute(
+        select(DeliveryLog)
+        .where(DeliveryLog.user_id == uid)
+        .order_by(DeliveryLog.created_at.desc())
+        .limit(10)
+    )
+    recent_logs = recent_logs_res.scalars().all()
+
+    recent_logs_sanitized = []
+    for l in recent_logs:
+        recent_logs_sanitized.append({
+            "id": l.id,
+            "from_email": l.from_email,
+            "to": l.to_email,
+            "subject": l.subject,
+            "status": l.status,
+            "provider_id": l.provider_id,
+            "provider_name": l.provider_name,
+            "provider_type": l.provider_type,
+            "message_id": l.message_id,
+            "error": l.error,
+            "attempts": l.attempts or [],
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        })
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -131,5 +171,5 @@ async def debug_export(user: dict = Depends(get_current_user)):
         "domains": [_sanitize_domain(d) for d in domains],
         "mailboxes": [_sanitize_mailbox(m) for m in mailboxes],
         "aliases": [_sanitize_alias(a) for a in aliases],
-        "recent_delivery_logs": recent_logs,
+        "recent_delivery_logs": recent_logs_sanitized,
     }

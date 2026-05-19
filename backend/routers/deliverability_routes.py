@@ -1,50 +1,80 @@
 """Deliverability checks + dashboard stats."""
 from fastapi import APIRouter, Depends
 from datetime import datetime, timezone
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
+from database import get_db
+from models import Domain, Mailbox, Alias, Relay, DeliveryLog
 from services.dns_service import run_full_check, compute_score
 
 router = APIRouter(tags=["deliverability"])
 
 
 @router.get("/deliverability")
-async def deliverability(user: dict = Depends(get_current_user)):
+async def deliverability(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Run live DNS checks across all of the user's domains."""
-    from server import db
-    domains = await db.domains.find({"user_id": user["id"]}, {"_id": 0}).to_list(200)
+    result = await db.execute(select(Domain).where(Domain.user_id == user["id"]))
+    domains = result.scalars().all()
     out = []
     for d in domains:
-        checks = run_full_check(d)
+        d_dict = {"name": d.name, "dkim_selector": d.dkim_selector, "dkim_public_key": d.dkim_public_key,
+                  "dkim_private_key": d.dkim_private_key, "mail_host": d.mail_host}
+        checks = run_full_check(d_dict)
         score = compute_score(checks)
-        await db.domains.update_one(
-            {"id": d["id"]},
-            {"$set": {"checks": checks, "score": score, "verified": score == 100,
-                      "last_checked_at": datetime.now(timezone.utc).isoformat()}},
-        )
+        d.checks = checks
+        d.score = score
+        d.verified = score == 100
+        d.last_checked_at = datetime.now(timezone.utc)
+        
         out.append({
-            "id": d["id"], "name": d["name"], "score": score,
+            "id": d.id, "name": d.name, "score": score,
             "verified": score == 100, "checks": checks,
         })
+    await db.flush()
     return {"domains": out}
 
 
 @router.get("/stats")
-async def stats(user: dict = Depends(get_current_user)):
-    from server import db
+async def stats(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     uid = user["id"]
-    domain_count = await db.domains.count_documents({"user_id": uid})
-    mailbox_count = await db.mailboxes.count_documents({"user_id": uid})
-    alias_count = await db.aliases.count_documents({"user_id": uid})
-    relay_count = await db.relays.count_documents({"user_id": uid})
-    sent_count = await db.delivery_logs.count_documents({"user_id": uid, "status": "sent"})
-    failed_count = await db.delivery_logs.count_documents({"user_id": uid, "status": "failed"})
-    verified_count = await db.delivery_logs.count_documents({"user_id": uid})  # all
-    verified_domains = await db.domains.count_documents({"user_id": uid, "verified": True})
-    received_count = await db.inbound_messages.count_documents({"user_id": uid})
+    domain_count = (await db.execute(select(func.count(Domain.id)).where(Domain.user_id == uid))).scalar()
+    mailbox_count = (await db.execute(select(func.count(Mailbox.id)).where(Mailbox.user_id == uid))).scalar()
+    alias_count = (await db.execute(select(func.count(Alias.id)).where(Alias.user_id == uid))).scalar()
+    relay_count = (await db.execute(select(func.count(Relay.id)).where(Relay.user_id == uid))).scalar()
+    sent_count = (await db.execute(select(func.count(DeliveryLog.id)).where(DeliveryLog.user_id == uid, DeliveryLog.status == "sent"))).scalar()
+    failed_count = (await db.execute(select(func.count(DeliveryLog.id)).where(DeliveryLog.user_id == uid, DeliveryLog.status == "failed"))).scalar()
+    verified_count = (await db.execute(select(func.count(DeliveryLog.id)).where(DeliveryLog.user_id == uid))).scalar()  # all
+    verified_domains = (await db.execute(select(func.count(Domain.id)).where(Domain.user_id == uid, Domain.verified == True))).scalar()
+    
+    # received_count is 0 since we removed MongoDB duplicate writes and store incoming mail exclusively inside Dovecot Maildirs
+    received_count = 0
 
     # Recent logs
-    recent = await db.delivery_logs.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+    recent_res = await db.execute(
+        select(DeliveryLog)
+        .where(DeliveryLog.user_id == uid)
+        .order_by(DeliveryLog.created_at.desc())
+        .limit(5)
+    )
+    recent_logs = recent_res.scalars().all()
+    recent = []
+    for l in recent_logs:
+        recent.append({
+            "id": l.id,
+            "from_email": l.from_email,
+            "to": l.to_email,
+            "subject": l.subject,
+            "status": l.status,
+            "provider_id": l.provider_id,
+            "provider_name": l.provider_name,
+            "provider_type": l.provider_type,
+            "message_id": l.message_id,
+            "error": l.error,
+            "attempts": l.attempts or [],
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        })
     
     # Generate Time Series (Synthetic for Observability Dashboard Demo)
     import random

@@ -4,7 +4,8 @@ import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, Request, Response, Depends
-from bson import ObjectId
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
 
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = 60 * 24  # 24h for self-hosted comfort
@@ -49,22 +50,12 @@ def create_refresh_token(user_id: str) -> str:
 
 def set_auth_cookies(response: Response, access: str, refresh: str) -> None:
     response.set_cookie(
-        key="access_token",
-        value=access,
-        httponly=True,
-        secure=False,
-        samesite="lax",
-        max_age=ACCESS_TOKEN_MINUTES * 60,
-        path="/",
+        key="access_token", value=access, httponly=True, secure=False,
+        samesite="lax", max_age=ACCESS_TOKEN_MINUTES * 60, path="/",
     )
     response.set_cookie(
-        key="refresh_token",
-        value=refresh,
-        httponly=True,
-        secure=False,
-        samesite="lax",
-        max_age=REFRESH_TOKEN_DAYS * 24 * 60 * 60,
-        path="/",
+        key="refresh_token", value=refresh, httponly=True, secure=False,
+        samesite="lax", max_age=REFRESH_TOKEN_DAYS * 24 * 60 * 60, path="/",
     )
 
 
@@ -82,55 +73,70 @@ def _extract_token(request: Request) -> str | None:
     return token
 
 
-async def get_current_user(request: Request) -> dict:
-    """Dependency that returns the current authenticated user document."""
-    from server import db  # local import to avoid circular
+async def get_current_user(
+    request: Request,
+    db: AsyncSession = Depends(lambda: None),  # overridden below via middleware approach
+) -> dict:
+    """
+    Dependency that returns the current authenticated user.
+    Gets a fresh DB session internally to avoid circular dependency issues.
+    """
+    from database import AsyncSessionLocal
+    from models import User, Mailbox, ApiToken
 
     token = _extract_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    # Handle API keys (e.g. re_xxxx)
-    if token.startswith("re_"):
-        api_key = await db.api_tokens.find_one({"token": token})
-        if not api_key:
-            raise HTTPException(status_code=401, detail="Invalid API token")
-        
-        # Update last used timestamp
-        await db.api_tokens.update_one(
-            {"_id": api_key["_id"]},
-            {"$set": {"last_used_at": datetime.now(timezone.utc).isoformat()}}
-        )
+    async with AsyncSessionLocal() as session:
+        # --- API Key auth ---
+        if token.startswith("re_"):
+            result = await session.execute(
+                select(ApiToken).where(ApiToken.token == token)
+            )
+            api_key = result.scalar_one_or_none()
+            if not api_key:
+                raise HTTPException(status_code=401, detail="Invalid API token")
 
-        user = await db.users.find_one({"_id": ObjectId(api_key["user_id"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        user["id"] = str(user["_id"])
-        user.pop("_id", None)
-        user.pop("password_hash", None)
-        return user
+            # Update last_used_at
+            await session.execute(
+                update(ApiToken)
+                .where(ApiToken.id == api_key.id)
+                .values(last_used_at=datetime.now(timezone.utc))
+            )
+            await session.commit()
 
-    # Handle JWT
-    try:
-        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-            
-        role = payload.get("role", "user")
-        if role == "mailbox":
-            user = await db.mailboxes.find_one({"id": payload["sub"]})
+            result = await session.execute(select(User).where(User.id == api_key.user_id))
+            user = result.scalar_one_or_none()
             if not user:
-                raise HTTPException(status_code=401, detail="Mailbox not found")
-            return {"id": user["id"], "email": user["address"], "role": "mailbox"}
-            
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        user["id"] = str(user["_id"])
-        user.pop("_id", None)
-        user.pop("password_hash", None)
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+                raise HTTPException(status_code=401, detail="User not found")
+            return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+
+        # --- JWT auth ---
+        try:
+            payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+            if payload.get("type") != "access":
+                raise HTTPException(status_code=401, detail="Invalid token type")
+
+            role = payload.get("role", "user")
+            user_id = payload["sub"]
+
+            if role == "mailbox":
+                result = await session.execute(
+                    select(Mailbox).where(Mailbox.id == user_id)
+                )
+                mb = result.scalar_one_or_none()
+                if not mb:
+                    raise HTTPException(status_code=401, detail="Mailbox not found")
+                return {"id": mb.id, "email": mb.address, "role": "mailbox"}
+
+            result = await session.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+            return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
