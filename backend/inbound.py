@@ -180,36 +180,17 @@ class RelaydHandler:
                     user_id = domain_doc["user_id"]
                     is_mailbox = await db.mailboxes.count_documents({"address": rcpt_clean, "active": True}) > 0
 
-                    # Save to DB
-                    msg_id = str(uuid.uuid4())
-                    message_doc = {
-                        "id": msg_id,
-                        "user_id": user_id,
-                        "from": mail_from,
-                        "to": rcpt_clean,
-                        "subject": subject,
-                        "body_text": msg.get_body(preferencelist=('plain',)).get_content() if msg.get_body(preferencelist=('plain',)) else "",
-                        "body_html": msg.get_body(preferencelist=('html',)).get_content() if msg.get_body(preferencelist=('html',)) else None,
-                        "headers": dict(msg.items()),
-                        "raw_size": len(content),
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "read": False,
-                        "is_mailbox": is_mailbox
-                    }
-                    
-                    await db.inbound_messages.insert_one(message_doc)
-                    logger.info(f"Stored message {msg_id} for {rcpt_clean}")
-                    
-                    if is_mailbox:
-                        import smtplib
-                        dovecot_host = os.environ.get("DOVECOT_HOST", "dovecot")
-                        dovecot_port = int(os.environ.get("DOVECOT_LMTP_PORT", "2525"))
-                        try:
-                            with smtplib.SMTP(dovecot_host, dovecot_port, timeout=5) as lmtp:
-                                lmtp.sendmail(mail_from or "MAILER-DAEMON", [rcpt_clean], content)
-                            logger.info(f"Forwarded {msg_id} to Dovecot LMTP ({dovecot_host}:{dovecot_port})")
-                        except Exception as e:
-                            logger.warning(f"Dovecot LMTP forward failed for {rcpt_clean}: {e} — message still saved in MongoDB")
+                    # Forward to Dovecot LMTP — Dovecot is the single source of truth for stored mail.
+                    # We do NOT write to MongoDB; the webmail reads directly from Dovecot via IMAP.
+                    import smtplib
+                    dovecot_host = os.environ.get("DOVECOT_HOST", "dovecot")
+                    dovecot_port = int(os.environ.get("DOVECOT_LMTP_PORT", "2525"))
+                    try:
+                        with smtplib.SMTP(dovecot_host, dovecot_port, timeout=5) as lmtp:
+                            lmtp.sendmail(mail_from or "MAILER-DAEMON", [rcpt_clean], content)
+                        logger.info(f"Delivered to Dovecot LMTP for {rcpt_clean} (from={mail_from}, subject={subject!r}, size={len(content)})")
+                    except Exception as e:
+                        logger.warning(f"Dovecot LMTP forward failed for {rcpt_clean}: {e}")
                 except Exception as rcpt_err:
                     logger.error(f"Rcpt error {rcpt}: {rcpt_err}")
 

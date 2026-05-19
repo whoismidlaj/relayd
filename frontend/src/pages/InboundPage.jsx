@@ -27,56 +27,26 @@ export default function InboundPage() {
   const [sentMessages, setSentMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
-  
-  // Local storage lists for folders (Inbox, Spam, Trash)
-  const [trashIds, setTrashIds] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(`relayd_trash_${user?.email}`) || "[]");
-    } catch { return []; }
-  });
-  const [spamIds, setSpamIds] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(`relayd_spam_${user?.email}`) || "[]");
-    } catch { return []; }
-  });
 
   const currentFolder = searchParams.get("folder") || "inbox"; // inbox, sent, spam, trash
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [adminOpenId, setAdminOpenId] = useState(null);
 
-  // Sync folders to local storage
-  useEffect(() => {
-    if (user?.email) {
-      localStorage.setItem(`relayd_trash_${user.email}`, JSON.stringify(trashIds));
-    }
-  }, [trashIds, user]);
-
-  useEffect(() => {
-    if (user?.email) {
-      localStorage.setItem(`relayd_spam_${user.email}`, JSON.stringify(spamIds));
-    }
-  }, [spamIds, user]);
-
-  // Broadcast folder updates to sidebar unread counts
-  useEffect(() => {
-    if (user?.role === "mailbox") {
-      window.dispatchEvent(new Event("relayd-mail-updated"));
-    }
-  }, [trashIds, spamIds, messages, user]);
-
   const refreshData = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // 1. Fetch Inbound/Received Messages
-      const resInbound = await api.get("/inbound/messages");
-      setMessages(resInbound.data);
-
-      // 2. Fetch Outbound/Sent Messages (only needed for mailbox user)
       if (user.role === "mailbox") {
-        const resSent = await api.get("/logs");
-        setSentMessages(resSent.data);
+        // Fetch directly from Dovecot via IMAP — pass folder so server fetches the right mailbox
+        const folderParam = currentFolder === "sent" ? "sent" : currentFolder;
+        const resInbound = await api.get(`/inbound/messages?folder=${folderParam}&limit=100`);
+        setMessages(resInbound.data);
+        setSentMessages([]);
+      } else {
+        // Admin view: inbound logs metadata
+        const resInbound = await api.get("/inbound/messages");
+        setMessages(resInbound.data);
       }
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -87,67 +57,72 @@ export default function InboundPage() {
 
   useEffect(() => {
     refreshData();
-  }, [user]);
+  }, [user, currentFolder]); // re-fetch when folder changes
 
   // Reset selected message when folder changes
   useEffect(() => {
     setSelectedMessage(null);
   }, [currentFolder]);
 
-  // Folder Actions
-  const moveToTrash = (id) => {
-    if (!trashIds.includes(id)) {
-      setTrashIds(prev => [...prev, id]);
+  // Broadcast unread count updates to sidebar
+  useEffect(() => {
+    if (user?.role === "mailbox") {
+      window.dispatchEvent(new Event("relayd-mail-updated"));
+    }
+  }, [messages, user]);
+
+  // Folder Actions — all server-side via IMAP move
+  const moveToTrash = async (id) => {
+    try {
+      await api.post(`/inbound/messages/${id}/move?src=${currentFolder}&dst=trash`);
+      setMessages(prev => prev.filter(m => m.id !== id));
+      if (selectedMessage?.id === id) setSelectedMessage(null);
       toast.success("Message moved to Trash");
-    }
-    if (selectedMessage?.id === id) {
-      setSelectedMessage(null);
+    } catch (e) {
+      toast.error("Failed to move to Trash");
     }
   };
 
-  const moveToSpam = (id) => {
-    if (!spamIds.includes(id)) {
-      setSpamIds(prev => [...prev, id]);
+  const moveToSpam = async (id) => {
+    try {
+      await api.post(`/inbound/messages/${id}/move?src=${currentFolder}&dst=spam`);
+      setMessages(prev => prev.filter(m => m.id !== id));
+      if (selectedMessage?.id === id) setSelectedMessage(null);
       toast.success("Message marked as Spam");
-    }
-    if (selectedMessage?.id === id) {
-      setSelectedMessage(null);
-    }
-  };
-
-  const restoreFromSpam = (id) => {
-    setSpamIds(prev => prev.filter(x => x !== id));
-    toast.success("Message restored to Inbox");
-    if (selectedMessage?.id === id) {
-      setSelectedMessage(null);
+    } catch (e) {
+      toast.error("Failed to mark as Spam");
     }
   };
 
-  const restoreFromTrash = (id) => {
-    setTrashIds(prev => prev.filter(x => x !== id));
-    toast.success("Message restored to Inbox");
-    if (selectedMessage?.id === id) {
-      setSelectedMessage(null);
+  const restoreFromSpam = async (id) => {
+    try {
+      await api.post(`/inbound/messages/${id}/move?src=spam&dst=inbox`);
+      setMessages(prev => prev.filter(m => m.id !== id));
+      if (selectedMessage?.id === id) setSelectedMessage(null);
+      toast.success("Message restored to Inbox");
+    } catch (e) {
+      toast.error("Failed to restore message");
     }
   };
 
-  const permanentlyDelete = async (id, isReceived = true) => {
+  const restoreFromTrash = async (id) => {
+    try {
+      await api.post(`/inbound/messages/${id}/move?src=trash&dst=inbox`);
+      setMessages(prev => prev.filter(m => m.id !== id));
+      if (selectedMessage?.id === id) setSelectedMessage(null);
+      toast.success("Message restored to Inbox");
+    } catch (e) {
+      toast.error("Failed to restore message");
+    }
+  };
+
+  const permanentlyDelete = async (id) => {
     if (!confirm("Are you sure you want to permanently delete this message?")) return;
     try {
-      if (isReceived) {
-        await api.delete(`/inbound/messages/${id}`);
-        setMessages(prev => prev.filter(m => m.id !== id));
-      } else {
-        // Sent messages are logs
-        setTrashIds(prev => prev.filter(x => x !== id));
-      }
-      setTrashIds(prev => prev.filter(x => x !== id));
-      setSpamIds(prev => prev.filter(x => x !== id));
-      if (selectedMessage?.id === id) {
-        setSelectedMessage(null);
-      }
+      await api.delete(`/inbound/messages/${id}?folder=${currentFolder}`);
+      setMessages(prev => prev.filter(m => m.id !== id));
+      if (selectedMessage?.id === id) setSelectedMessage(null);
       toast.success("Message permanently deleted");
-      refreshData();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     }
@@ -156,49 +131,39 @@ export default function InboundPage() {
   const markAsRead = async (msg) => {
     if (msg.read) return;
     try {
-      await api.get(`/inbound/messages/${msg.id}`);
+      // Fetching the full message marks it as read server-side (\Seen flag)
+      await api.get(`/inbound/messages/${msg.id}?folder=${currentFolder}`);
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read: true } : m));
     } catch (e) {
       console.error("Failed to mark as read", e);
     }
   };
 
-  const selectEmail = (msg) => {
-    setSelectedMessage(msg);
-    if (msg.to && !msg.read) {
-      markAsRead(msg);
+  const selectEmail = async (msg) => {
+    // If we only have a preview, fetch the full body on click
+    if (!msg.body_text && !msg.body_html && msg.id) {
+      try {
+        const res = await api.get(`/inbound/messages/${msg.id}?folder=${currentFolder}`);
+        const full = res.data;
+        setSelectedMessage(full);
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read: true } : m));
+        return;
+      } catch (e) {
+        // fallback to preview
+      }
     }
+    setSelectedMessage(msg);
+    if (msg.to && !msg.read) markAsRead(msg);
   };
 
-  // Filter Logic
+  // Filter (client-side search on the already-fetched folder)
   const getFilteredEmails = () => {
-    if (currentFolder === "sent") {
-      return sentMessages.filter(m => {
-        const term = searchQuery.toLowerCase();
-        return (
-          m.to_email?.toLowerCase().includes(term) ||
-          m.subject?.toLowerCase().includes(term) ||
-          (m.body || "").toLowerCase().includes(term)
-        );
-      });
-    }
-
-    // Received inbox messages
-    const received = messages.filter(m => {
-      const isTrashed = trashIds.includes(m.id);
-      const isSpammed = spamIds.includes(m.id);
-
-      if (currentFolder === "trash") return isTrashed;
-      if (currentFolder === "spam") return isSpammed && !isTrashed;
-      // Inbox folder
-      return !isTrashed && !isSpammed;
-    });
-
-    return received.filter(m => {
+    return messages.filter(m => {
       const term = searchQuery.toLowerCase();
       return (
-        m.from?.toLowerCase().includes(term) ||
-        m.subject?.toLowerCase().includes(term) ||
+        (m.from || "").toLowerCase().includes(term) ||
+        (m.to || "").toLowerCase().includes(term) ||
+        (m.subject || "").toLowerCase().includes(term) ||
         (m.body || "").toLowerCase().includes(term)
       );
     });
@@ -206,9 +171,9 @@ export default function InboundPage() {
 
   const filteredEmails = getFilteredEmails();
 
-  // -------------------------------------------------------------
-  // RENDER METHOD A: MAILBOX USER (PREMIUM TWO-PANE WEBMAIL CLIENT)
-  // -------------------------------------------------------------
+  // -----------------------------------------------------------
+  // RENDER METHOD A: MAILBOX USER (PREMIUM TWO-PANE WEBMAIL)
+  // -----------------------------------------------------------
   if (user?.role === "mailbox") {
     return (
       <AppShell fullWidth={true}>
@@ -245,7 +210,14 @@ export default function InboundPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-border/60">
-              {filteredEmails.length === 0 && (
+              {loading && (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+                  <RefreshCw className="h-6 w-6 mb-2 animate-spin opacity-50" />
+                  <p className="text-xs">Loading from server...</p>
+                </div>
+              )}
+
+              {!loading && filteredEmails.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
                   <Mail className="h-8 w-8 mb-2 stroke-1 opacity-40 animate-pulse" />
                   <p className="text-xs font-semibold">No emails here</p>
@@ -253,7 +225,8 @@ export default function InboundPage() {
                 </div>
               )}
 
-              {filteredEmails.map((msg) => {
+              {!loading && filteredEmails.map((msg) => {
+
                 const isSent = currentFolder === "sent";
                 const senderLabel = isSent ? `To: ${msg.to_email}` : msg.from;
                 const dateStr = new Date(msg.created_at).toLocaleDateString(undefined, {
